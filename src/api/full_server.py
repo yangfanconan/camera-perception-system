@@ -1,6 +1,6 @@
 """
 完整功能服务器 - 支持视频流、检测、空间计量
-简化版（无需完整依赖即可测试视频流）
+集成 YOLOv8 + MediaPipe 检测
 """
 
 import asyncio
@@ -15,6 +15,21 @@ from pathlib import Path
 from loguru import logger
 import time
 import io
+import sys
+
+# 添加项目路径
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# 导入检测模块
+try:
+    from algorithms import CombinedDetector
+    from algorithms.calibration import CalibrationParams
+    from algorithms.spatial.core import SpatialCalculatorEnhanced
+    DETECTION_AVAILABLE = True
+    logger.info("Detection modules loaded successfully")
+except ImportError as e:
+    logger.warning(f"Detection modules not available: {e}")
+    DETECTION_AVAILABLE = False
 
 # 设置日志
 logger.remove()
@@ -450,17 +465,42 @@ async def get_status():
 async def start_camera(config: CameraConfig = None):
     if config is None:
         config = CameraConfig()
-    
+
     if state.camera:
         state.camera.release()
-    
+
     state.camera = cv2.VideoCapture(config.camera_id, cv2.CAP_AVFOUNDATION)
     state.camera.set(cv2.CAP_PROP_FRAME_WIDTH, config.resolution[0])
     state.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, config.resolution[1])
     state.camera.set(cv2.CAP_PROP_FPS, config.fps)
-    
+
     if state.camera.isOpened():
         state.camera_opened = True
+        
+        # 初始化检测器
+        if DETECTION_AVAILABLE and state.detector is None:
+            try:
+                logger.info("Initializing detector...")
+                state.detector = CombinedDetector(
+                    conf_threshold=0.5,
+                    smooth=True
+                )
+                logger.info("Detector initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize detector: {e}")
+        
+        # 初始化空间计算器
+        if DETECTION_AVAILABLE and state.spatial_calc is None:
+            try:
+                logger.info("Initializing spatial calculator...")
+                calib_params = CalibrationParams(
+                    fx=650.0, fy=650.0, cx=320.0, cy=240.0
+                )
+                state.spatial_calc = SpatialCalculatorEnhanced(calib_params)
+                logger.info("Spatial calculator initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize spatial calculator: {e}")
+        
         logger.info(f"Camera opened: {config.resolution[0]}x{config.resolution[1]}@{config.fps}fps")
         return {"status": "success", "message": "Camera opened"}
     else:
@@ -519,44 +559,64 @@ async def video_stream():
 async def websocket_data(websocket: WebSocket):
     await websocket.accept()
     logger.info("WebSocket data connected")
-    
+
     try:
         while state.camera_opened:
             if not state.camera:
                 await asyncio.sleep(0.01)
                 continue
-            
+
             # 读取帧
             ret, frame = state.camera.read()
             if not ret:
                 await asyncio.sleep(0.01)
                 continue
-            
-            # 模拟检测数据（实际应调用 YOLO/MediaPipe）
+
+            # 初始化数据
             data = {
-                "persons": [],  # 实际检测时填充
+                "persons": [],
                 "hands": [],
                 "fps": state.fps,
                 "timestamp": time.time()
             }
-            
-            # TODO: 集成 YOLOv8 和 MediaPipe 后替换以下模拟数据
-            # 示例模拟数据：
-            # data["persons"] = [{
-            #     "bbox": [100, 100, 200, 500],
-            #     "distance": 3.5,
-            #     "height": 175.0,
-            #     "topview": {"x": 150, "y": 200},
-            #     "keypoints": {"nose": [200, 150]}
-            # }]
-            
+
+            # 执行检测
+            if DETECTION_AVAILABLE and state.detector:
+                try:
+                    result = state.detector.detect(frame)
+                    
+                    # 处理人体检测
+                    if state.spatial_calc:
+                        frame_height, frame_width = frame.shape[:2]
+                        for person in result.persons:
+                            person_metrics = state.spatial_calc.calc_person_metrics(
+                                person,
+                                image=frame,
+                                image_height=frame_height,
+                                image_width=frame_width
+                            )
+                            data["persons"].append(person_metrics)
+                    else:
+                        data["persons"] = result.persons
+                    
+                    # 处理手部检测
+                    if state.spatial_calc:
+                        for hand in result.hands:
+                            hand_metrics = state.spatial_calc.calc_hand_metrics(hand)
+                            data["hands"].append(hand_metrics)
+                    else:
+                        data["hands"] = result.hands
+                        
+                except Exception as e:
+                    logger.error(f"Detection error: {e}")
+
             try:
                 await websocket.send_json(data)
             except:
                 break
-            
+
             await asyncio.sleep(0.05)
-    
+
     except Exception as e:
         logger.error(f"WebSocket data error: {e}")
 

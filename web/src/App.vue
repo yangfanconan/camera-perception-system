@@ -1005,6 +1005,7 @@ const saveExtrinsics = async () => {
 
 const saveSettings = async () => {
   try {
+    // 保存到后端
     await axios.post(`${API_BASE}/api/settings`, {
       camera: {
         id: settings.cameraId,
@@ -1020,10 +1021,57 @@ const saveSettings = async () => {
         topview_scale: settings.topviewScale
       }
     })
+    
+    // 同时保存到 localStorage 实现前端持久化
+    localStorage.setItem('cameraSettings', JSON.stringify({
+      cameraId: settings.cameraId,
+      resolution: settings.resolution,
+      fps: settings.fps
+    }))
+    localStorage.setItem('detectionSettings', JSON.stringify({
+      confThreshold: settings.confThreshold,
+      smoothEnabled: settings.smoothEnabled
+    }))
+    localStorage.setItem('spatialSettings', JSON.stringify({
+      refShoulderWidth: settings.refShoulderWidth,
+      topviewScale: settings.topviewScale
+    }))
+    
     alert('设置已保存')
   } catch (error) {
     console.error('保存失败:', error)
     alert('保存失败')
+  }
+}
+
+// 从 localStorage 加载设置
+const loadLocalSettings = () => {
+  try {
+    const cameraSettings = localStorage.getItem('cameraSettings')
+    if (cameraSettings) {
+      const parsed = JSON.parse(cameraSettings)
+      settings.cameraId = parsed.cameraId ?? settings.cameraId
+      settings.resolution = parsed.resolution ?? settings.resolution
+      settings.fps = parsed.fps ?? settings.fps
+    }
+    
+    const detectionSettings = localStorage.getItem('detectionSettings')
+    if (detectionSettings) {
+      const parsed = JSON.parse(detectionSettings)
+      settings.confThreshold = parsed.confThreshold ?? settings.confThreshold
+      settings.smoothEnabled = parsed.smoothEnabled ?? settings.smoothEnabled
+    }
+    
+    const spatialSettings = localStorage.getItem('spatialSettings')
+    if (spatialSettings) {
+      const parsed = JSON.parse(spatialSettings)
+      settings.refShoulderWidth = parsed.refShoulderWidth ?? settings.refShoulderWidth
+      settings.topviewScale = parsed.topviewScale ?? settings.topviewScale
+    }
+    
+    console.log('本地设置已加载')
+  } catch (error) {
+    console.error('加载本地设置失败:', error)
   }
 }
 
@@ -1216,6 +1264,9 @@ onMounted(() => {
 
   // 监听窗口大小变化
   window.addEventListener('resize', updateCanvasSize)
+
+  // 加载本地持久化设置
+  loadLocalSettings()
 
   // 加载空间计量配置
   loadSpatialConfig()
