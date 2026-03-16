@@ -877,12 +877,13 @@ async def websocket_data(websocket: WebSocket):
             if state.spatial_calc:
                 # 获取图像尺寸
                 frame_height, frame_width = result.frame_shape[:2] if result.frame_shape else (1080, 1920)
-                
+
                 for person in result.persons:
-                    # 传递图像尺寸给空间计算
+                    # 传递图像和尺寸给空间计算（支持深度估计）
                     person_metrics = state.spatial_calc.calc_person_metrics(
-                        person, 
-                        image_height=frame_height, 
+                        person,
+                        image=frame,  # 传递原始图像用于深度估计
+                        image_height=frame_height,
                         image_width=frame_width
                     )
                     metrics["persons"].append(person_metrics)

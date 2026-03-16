@@ -13,6 +13,7 @@ from .kalman import DistanceKalmanFilter, KalmanParams
 from .body_detection import BodyPartDetector
 from .distance_estimation import DistanceEstimator
 from src.algorithms.calibration import CalibrationParams
+from src.algorithms.depth_enhanced_estimation import DepthEnhancedDistanceEstimator
 from src.utils.constants import (
     DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT,
     ULTRA_CLOSE_BBOX_RATIO,
@@ -62,6 +63,10 @@ class SpatialCalculatorEnhanced:
         # 初始化子模块
         self.body_detector = BodyPartDetector()
         self.distance_estimator = DistanceEstimator(fx=self.fx)
+        
+        # 深度增强估计器（可选）
+        self.depth_enhanced_estimator = None
+        self.use_depth_estimation = True  # 默认启用
 
         # 卡尔曼滤波器管理
         self.kalman_filters: Dict[int, DistanceKalmanFilter] = {}
@@ -74,13 +79,15 @@ class SpatialCalculatorEnhanced:
         logger.info(f"SpatialCalculatorEnhanced initialized: fx={self.fx}, fy={self.fy}")
 
     def calc_person_metrics(self, person: Dict[str, Any],
+                           image: Optional[np.ndarray] = None,
                            image_height: float = DEFAULT_IMAGE_HEIGHT,
                            image_width: float = DEFAULT_IMAGE_WIDTH) -> Dict[str, Any]:
         """
-        计算人体综合指标
+        计算人体综合指标（支持深度增强）
 
         Args:
             person: 人体检测结果
+            image: 原始图像（用于深度估计）
             image_height: 图像高度
             image_width: 图像宽度
 
@@ -100,47 +107,62 @@ class SpatialCalculatorEnhanced:
                 keypoints, bbox, image_height, image_width
             )
 
-            # 距离估计
-            body_distance = self.distance_estimator.estimate_from_bbox(
-                bbox, image_width, image_height
-            )
-            
-            # 尝试头部估计
-            head_distance, head_confidence = self.distance_estimator.estimate_from_head(keypoints)
-            
-            # 如果头部估计不可用（无头部或置信度低），使用身体关键点估计
-            body_keypoint_distance = 0.0
-            body_keypoint_confidence = 0.0
-            if head_distance == 0 or head_confidence < 0.3:
-                body_keypoint_distance, body_keypoint_confidence = \
-                    self.distance_estimator.estimate_from_body_keypoints(keypoints)
-            
-            # 选择最佳估计
-            if head_confidence >= 0.3:
-                # 优先使用头部估计
-                primary_distance = head_distance
-                primary_confidence = head_confidence
-                primary_method = "head"
-            elif body_keypoint_confidence >= 0.3:
-                # 使用身体关键点估计
-                primary_distance = body_keypoint_distance
-                primary_confidence = body_keypoint_confidence
-                primary_method = "body_keypoints"
+            # 距离估计：优先使用深度增强估计
+            if self.use_depth_estimation and image is not None:
+                # 初始化深度增强估计器
+                if self.depth_enhanced_estimator is None:
+                    self.depth_enhanced_estimator = DepthEnhancedDistanceEstimator(
+                        fx=self.fx, use_depth=True
+                    )
+                
+                # 使用深度增强估计
+                distance, confidence, method = self.depth_enhanced_estimator.estimate(
+                    image, bbox, keypoints, body_part
+                )
+                estimate_method = method
+                
+                # 备用：边界框估计
+                body_distance = self.distance_estimator.estimate_from_bbox(
+                    bbox, image_width, image_height
+                )
             else:
-                # 使用边界框估计
-                primary_distance = body_distance
-                primary_confidence = 0.5
-                primary_method = "bbox"
+                # 传统几何估计
+                body_distance = self.distance_estimator.estimate_from_bbox(
+                    bbox, image_width, image_height
+                )
 
-            # 近距离优化
-            distance, estimate_method = self.distance_estimator.estimate_close_range(
-                body_distance, primary_distance, primary_confidence,
-                bbox, keypoints, image_height, image_width, body_part
-            )
-            
-            # 添加估计方法标记
-            if primary_method == "body_keypoints":
-                estimate_method += "_body_kp"
+                # 尝试头部估计
+                head_distance, head_confidence = self.distance_estimator.estimate_from_head(keypoints)
+
+                # 如果头部估计不可用，使用身体关键点估计
+                body_keypoint_distance = 0.0
+                body_keypoint_confidence = 0.0
+                if head_distance == 0 or head_confidence < 0.3:
+                    body_keypoint_distance, body_keypoint_confidence = \
+                        self.distance_estimator.estimate_from_body_keypoints(keypoints)
+
+                # 选择最佳估计
+                if head_confidence >= 0.3:
+                    distance = head_distance
+                    confidence = head_confidence
+                    primary_method = "head"
+                elif body_keypoint_confidence >= 0.3:
+                    distance = body_keypoint_distance
+                    confidence = body_keypoint_confidence
+                    primary_method = "body_keypoints"
+                else:
+                    distance = body_distance
+                    confidence = 0.5
+                    primary_method = "bbox"
+
+                # 近距离优化
+                distance, estimate_method = self.distance_estimator.estimate_close_range(
+                    body_distance, distance, confidence,
+                    bbox, keypoints, image_height, image_width, body_part
+                )
+
+                if primary_method == "body_keypoints":
+                    estimate_method += "_body_kp"
         except Exception as e:
             logger.error(f"Error in spatial calculation: {e}")
             # 返回默认值
