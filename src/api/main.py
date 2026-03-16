@@ -764,6 +764,21 @@ async def get_spatial_config():
     }
 
 
+@app.get("/api/depth/stats")
+async def get_depth_stats():
+    """获取深度估计统计"""
+    from src.algorithms.depth_estimator import get_depth_estimator
+    
+    try:
+        estimator = get_depth_estimator()
+        return {
+            "status": "success",
+            "stats": estimator.get_stats()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/errors")
 async def get_errors():
     """获取错误统计"""

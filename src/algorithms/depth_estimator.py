@@ -1,15 +1,111 @@
 """
 深度估计模块
 
-基于 MiDaS 的单目深度估计
+基于 MiDaS 的单目深度估计（带缓存和异步支持）
 """
 
 import cv2
 import numpy as np
 import torch
+import threading
+import time
 from typing import Tuple, Optional
 from pathlib import Path
 from loguru import logger
+from collections import deque
+
+
+class DepthCache:
+    """深度图缓存"""
+    
+    def __init__(self, max_size: int = 5, ttl: float = 0.5):
+        """
+        初始化缓存
+        
+        Args:
+            max_size: 最大缓存帧数
+            ttl: 缓存有效期（秒）
+        """
+        self.max_size = max_size
+        self.ttl = ttl
+        self.cache = deque(maxlen=max_size)
+        self.lock = threading.Lock()
+        
+    def get(self, frame_hash: str) -> Optional[np.ndarray]:
+        """获取缓存的深度图"""
+        with self.lock:
+            now = time.time()
+            for i, (hash_val, depth, timestamp) in enumerate(self.cache):
+                if hash_val == frame_hash and (now - timestamp) < self.ttl:
+                    return depth
+            return None
+    
+    def put(self, frame_hash: str, depth: np.ndarray):
+        """添加深度图到缓存"""
+        with self.lock:
+            self.cache.append((frame_hash, depth, time.time()))
+    
+    def clear(self):
+        """清空缓存"""
+        with self.lock:
+            self.cache.clear()
+
+
+class AsyncDepthEstimator:
+    """异步深度估计器"""
+    
+    def __init__(self, estimator: 'DepthEstimator'):
+        self.estimator = estimator
+        self.queue = deque(maxlen=3)  # 最多3帧待处理
+        self.result = None
+        self.lock = threading.Lock()
+        self.thread = None
+        self.running = False
+        
+    def start(self):
+        """启动异步处理线程"""
+        self.running = True
+        self.thread = threading.Thread(target=self._process_loop, daemon=True)
+        self.thread.start()
+        
+    def stop(self):
+        """停止异步处理"""
+        self.running = False
+        if self.thread:
+            self.thread.join(timeout=1.0)
+    
+    def _process_loop(self):
+        """处理循环"""
+        while self.running:
+            if self.queue:
+                with self.lock:
+                    if self.queue:
+                        image, callback = self.queue.popleft()
+                    else:
+                        continue
+                
+                # 执行深度估计
+                depth = self.estimator.estimate(image)
+                
+                # 保存结果
+                with self.lock:
+                    self.result = depth
+                
+                # 回调
+                if callback:
+                    callback(depth)
+            else:
+                time.sleep(0.01)  # 10ms 轮询
+    
+    def submit(self, image: np.ndarray, callback=None):
+        """提交图像进行异步处理"""
+        with self.lock:
+            self.queue.append((image, callback))
+    
+    def get_result(self) -> Optional[np.ndarray]:
+        """获取最新结果"""
+        with self.lock:
+            return self.result
 
 
 class DepthEstimator:
@@ -26,20 +122,34 @@ class DepthEstimator:
         'large': 'DPT_Large',         # 高精度，慢
     }
     
-    def __init__(self, model_type: str = 'small', device: Optional[str] = None):
+    def __init__(self, model_type: str = 'small', device: Optional[str] = None,
+                 use_cache: bool = True, cache_size: int = 5):
         """
         初始化深度估计器
         
         Args:
             model_type: 模型类型 ('small', 'hybrid', 'large')
             device: 计算设备 ('cuda', 'mps', 'cpu')
+            use_cache: 是否使用缓存
+            cache_size: 缓存大小
         """
         self.model_type = model_type
         self.device = self._get_device(device)
         self.model = None
         self.transform = None
         
-        logger.info(f"Initializing DepthEstimator with model: {model_type}, device: {self.device}")
+        # 缓存
+        self.use_cache = use_cache
+        self.cache = DepthCache(max_size=cache_size) if use_cache else None
+        
+        # 性能统计
+        self.stats = {
+            'total_calls': 0,
+            'cache_hits': 0,
+            'inference_time_ms': deque(maxlen=100)
+        }
+        
+        logger.info(f"Initializing DepthEstimator with model: {model_type}, device: {self.device}, cache: {use_cache}")
         
     def _get_device(self, device: Optional[str]) -> str:
         """自动选择设备"""
@@ -88,16 +198,38 @@ class DepthEstimator:
             logger.error(f"Failed to load MiDaS model: {e}")
             return False
     
-    def estimate(self, image: np.ndarray) -> Optional[np.ndarray]:
+    def _compute_frame_hash(self, image: np.ndarray) -> str:
+        """计算图像哈希用于缓存"""
+        # 使用图像尺寸和部分像素的哈希
+        h, w = image.shape[:2]
+        # 采样中心区域的像素
+        sample = image[h//4:3*h//4, w//4:3*w//4:10]
+        return f"{h}x{w}_{hash(sample.tobytes()) % 1000000}"
+    
+    def estimate(self, image: np.ndarray, use_cache: bool = True) -> Optional[np.ndarray]:
         """
-        估计深度图
+        估计深度图（带缓存）
         
         Args:
             image: BGR 图像 (H, W, 3)
+            use_cache: 是否使用缓存
             
         Returns:
             深度图 (H, W)，单位：米，None 表示失败
         """
+        import time
+        start_time = time.time()
+        
+        self.stats['total_calls'] += 1
+        
+        # 检查缓存
+        if use_cache and self.use_cache and self.cache:
+            frame_hash = self._compute_frame_hash(image)
+            cached_depth = self.cache.get(frame_hash)
+            if cached_depth is not None:
+                self.stats['cache_hits'] += 1
+                return cached_depth
+        
         if self.model is None:
             if not self.load_model():
                 return None
@@ -126,8 +258,16 @@ class DepthEstimator:
             # 使用逆深度表示：depth = 1.0 / (depth + epsilon)
             depth = self._convert_to_metric(depth)
             
-            return depth
+            # 记录推理时间
+            inference_time = (time.time() - start_time) * 1000
+            self.stats['inference_time_ms'].append(inference_time)
             
+            # 存入缓存
+            if use_cache and self.use_cache and self.cache:
+                self.cache.put(frame_hash, depth)
+            
+            return depth
+
         except Exception as e:
             logger.error(f"Depth estimation failed: {e}")
             return None
@@ -193,22 +333,41 @@ class DepthEstimator:
     def get_depth_at_point(self, image: np.ndarray, point: Tuple[int, int]) -> float:
         """
         获取特定点的深度
-        
+
         Args:
             image: 图像
             point: (x, y) 坐标
-            
+
         Returns:
             深度值（米）
         """
         depth_map = self.estimate(image)
         if depth_map is None:
             return 0.0
-        
+
         x, y = point
         if 0 <= x < depth_map.shape[1] and 0 <= y < depth_map.shape[0]:
             return float(depth_map[y, x])
         return 0.0
+    
+    def get_stats(self) -> dict:
+        """获取性能统计"""
+        avg_time = 0.0
+        if self.stats['inference_time_ms']:
+            avg_time = sum(self.stats['inference_time_ms']) / len(self.stats['inference_time_ms'])
+        
+        cache_hit_rate = 0.0
+        if self.stats['total_calls'] > 0:
+            cache_hit_rate = self.stats['cache_hits'] / self.stats['total_calls']
+        
+        return {
+            'total_calls': self.stats['total_calls'],
+            'cache_hits': self.stats['cache_hits'],
+            'cache_hit_rate': round(cache_hit_rate, 3),
+            'avg_inference_time_ms': round(avg_time, 2),
+            'model_type': self.model_type,
+            'device': self.device
+        }
 
 
 # 全局深度估计器实例
