@@ -1,0 +1,36 @@
+[project]
+name = "camera-perception-system"
+version = "0.1.0"
+description = "摄像头实时感知 + 空间计量系统"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    {name = "Your Name", email = "your.email@example.com"}
+]
+keywords = ["computer-vision", "yolo", "mediapipe", "camera-calibration", "fastapi"]
+license = {text = "MIT"}
+
+[project.urls]
+Homepage = "https://github.com/your-username/camera-perception-system"
+Documentation = "https://github.com/your-username/camera-perception-system#readme"
+Repository = "https://github.com/your-username/camera-perception-system"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+asyncio_mode = "auto"

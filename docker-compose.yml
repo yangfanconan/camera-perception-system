@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # 后端服务
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: camera-perception-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # 挂载数据目录
+      - ./data:/app/data
+      - ./calibration_data:/app/calibration_data
+      - ./models:/app/models
+      - ./logs:/app/logs
+      # 挂载配置文件
+      - ./configs:/app/configs:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=INFO
+      - CAMERA_ID=${CAMERA_ID:-0}
+      - RESOLUTION=${RESOLUTION:-1920x1080}
+      - FPS=${FPS:-20}
+    devices:
+      # 摄像头设备（Linux）
+      - /dev/video0:/dev/video0
+    # 重启策略
+    restart: unless-stopped
+    # 网络
+    networks:
+      - perception-network
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 1G
+
+  # 前端服务（生产环境）
+  frontend:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: camera-perception-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - perception-network
+    restart: unless-stopped
+
+  # 前端服务（开发环境 - 可选）
+  frontend-dev:
+    image: node:18-alpine
+    container_name: camera-perception-frontend-dev
+    working_dir: /app
+    volumes:
+      - ./web:/app
+    ports:
+      - "5173:5173"
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    networks:
+      - perception-network
+    profiles:
+      - dev
+    restart: unless-stopped
+
+networks:
+  perception-network:
+    driver: bridge
+
+volumes:
+  data:
+  calibration_data:
+  models:
+  logs:

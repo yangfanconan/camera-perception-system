@@ -1,0 +1,73 @@
+# 相机配置
+camera:
+  id: 0                    # 摄像头设备 ID (0=默认摄像头)
+  resolution: [1920, 1080] # 分辨率 [width, height]
+  fps: 20                  # 帧率
+  
+# 标定参数
+calibration:
+  checkerboard: [9, 6]     # 棋盘格角点数 [cols, rows]
+  square_size: 25.0        # 棋盘格边长 (mm)
+  min_images: 15           # 最少标定图片数量
+  
+# 相机内参（标定后自动填充）
+intrinsics:
+  fx: 0.0
+  fy: 0.0
+  cx: 0.0
+  cy: 0.0
+  dist_coeffs: [0.0, 0.0, 0.0, 0.0, 0.0]
+  
+# 相机外参
+extrinsics:
+  height: 1.8              # 摄像头安装高度 (米)
+  pitch_angle: 30.0        # 俯角 (度)
+  fov_vertical: 60.0       # 垂直视场角 (度)
+  fov_horizontal: 90.0     # 水平视场角 (度)
+  rotation_matrix: []      # 3x3 旋转矩阵
+  translation_vector: []   # 3x1 平移向量
+  
+# 视频流配置
+stream:
+  codec: h264              # 编码格式
+  bitrate: 2000            # 码率 (kbps)
+  gop_size: 20             # 关键帧间隔
+  
+# 检测配置
+detection:
+  yolo_model: models/yolov8n.pt
+  conf_threshold: 0.5      # 置信度阈值
+  iou_threshold: 0.45      # NMS 阈值
+  
+# 空间计量配置
+spatial:
+  ref_shoulder_width: 0.45 # 参考肩宽 (米)
+  ref_hand_length: 0.18    # 参考手长 (米)
+  
+  # 头部尺寸参数（用于近距离距离估计）
+  head:
+    ref_head_width: 0.15       # 参考头宽 (米) - 成人平均 14-16cm
+    ref_eye_distance: 0.063    # 双眼间距 (米) - 平均 6.3cm
+    ref_ear_distance: 0.145    # 双耳间距 (米) - 平均 14.5cm
+    ref_eye_nose_distance: 0.035 # 眼到鼻距离 (米) - 平均 3.5cm
+    ref_head_height: 0.22      # 头部高度 (米) - 平均 22cm
+
+# 卡尔曼滤波参数（距离平滑）
+kalman:
+  max_speed: 3.0           # 最大移动速度 (米/秒) - 步行约1.5m/s，奔跑可达10m/s
+  process_noise: 0.1       # 过程噪声 - 越小越信任预测
+  measurement_noise: 0.3   # 测量噪声 - 越小越信任测量
+  
+# 近距离估计优化参数
+close_range:
+  threshold: 1.5           # 近距离阈值 (米) - 低于此距离启用优化
+  ultra_close_threshold: 0.5 # 超近距离阈值 (米)
+  head_weight: 0.7         # 近距离时头部估计权重
+  body_weight: 0.3         # 近距离时身体估计权重
+  use_perspective_correction: true # 启用透视校正
+  
+# Web 服务配置
+server:
+  host: 0.0.0.0
+  port: 8000
+  ws_port: 8765
