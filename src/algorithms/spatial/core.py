@@ -116,10 +116,12 @@ class SpatialCalculatorEnhanced:
                     )
                 
                 # 使用深度增强估计
-                distance, confidence, method = self.depth_enhanced_estimator.estimate(
+                distance_estimate = self.depth_enhanced_estimator.estimate(
                     image, bbox, keypoints, body_part
                 )
-                estimate_method = method
+                distance = distance_estimate.distance
+                confidence = distance_estimate.confidence
+                estimate_method = distance_estimate.method
                 
                 # 备用：边界框估计
                 body_distance = self.distance_estimator.estimate_from_bbox(
