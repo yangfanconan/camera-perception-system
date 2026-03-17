@@ -70,8 +70,19 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/api/health', timeout=5)" || exit 1
 
+# 环境变量
+ENV PYTHONPATH=/app \
+    MODEL_CACHE_DIR=/app/models \
+    LOG_LEVEL=INFO \
+    MAX_MEMORY_GB=4 \
+    ENABLE_DEPTH_ESTIMATION=true \
+    ENABLE_TENSORRT=false
+
+# 卷挂载点
+VOLUME ["/app/data", "/app/calibration_data", "/app/models", "/app/logs", "/app/configs"]
+
 # 启动命令
-CMD ["python", "-m", "src.api.main_full", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "src.api.main", "--host", "0.0.0.0", "--port", "8000"]
 
 # ====================
 # 开发阶段
