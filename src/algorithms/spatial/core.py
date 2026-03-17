@@ -165,13 +165,25 @@ class SpatialCalculatorEnhanced:
                     estimate_method += "_body_kp"
         except Exception as e:
             logger.error(f"Error in spatial calculation: {e}")
-            # 返回默认值
+            import traceback
+            logger.error(traceback.format_exc())
+            # 返回默认值（包含原始 bbox）
             return {
                 "distance": 0.0,
                 "height": 0.0,
                 "topview": {"x": 0, "y": 0},
                 "estimate_method": "error",
                 "body_part": "unknown",
+                "body_part_confidence": 0.0,
+                "bbox_area_ratio": 0.0,
+                "bbox_height_ratio": 0.0,
+                "image_size": [int(image_width), int(image_height)],
+                "bbox": person.get('bbox', [0, 0, 100, 100]),  # 保留原始 bbox
+                "keypoints": person.get('keypoints', {}),
+                "track_id": person.get('track_id'),
+                "velocity": 0.0,
+                "motion_state": "unknown",
+                "calc_time_ms": 0.0,
                 "error": str(e)
             }
 
