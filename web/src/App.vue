@@ -654,21 +654,27 @@ const connectWebSocket = () => {
   videoWs = new WebSocket('ws://localhost:8001/ws/video')
   videoWs.binaryType = 'arraybuffer'
 
+  // 存储最新的检测数据用于绘制
+  let latestDetectionData = { persons: [], hands: [] }
+
   videoWs.onmessage = (event) => {
     if (!videoCanvas.value) return
 
     const ctx = videoCanvas.value.getContext('2d')
     const img = new Image()
     img.onload = () => {
-      // 根据实际视频尺寸绘制，保持宽高比
+      // 绘制视频帧
       ctx.drawImage(img, 0, 0, canvasWidth.value, canvasHeight.value)
+      
+      // 绘制检测标注（在视频帧之上）
+      drawAnnotations(latestDetectionData)
     }
     img.src = URL.createObjectURL(new Blob([event.data]))
   }
-  
+
   // 数据 WebSocket - 直接连接后端
   dataWs = new WebSocket('ws://localhost:8001/ws/data')
-  
+
   dataWs.onmessage = (event) => {
     const data = JSON.parse(event.data)
 
@@ -685,17 +691,14 @@ const connectWebSocket = () => {
     // 更新 FPS
     systemStatus.fps = Math.round(1000 / (data.timestamp_diff || 50))
 
-    // 准备绘制数据（确保数组存在）
-    const drawData = {
+    // 保存最新数据用于绘制
+    latestDetectionData = {
       persons: data.persons || [],
       hands: data.hands || []
     }
 
-    // 绘制标注
-    drawAnnotations(drawData)
-
-    // 绘制顶视图
-    drawTopView(drawData)
+    // 绘制顶视图（独立画布）
+    drawTopView(latestDetectionData)
   }
   
   // 心跳
@@ -759,7 +762,7 @@ const drawAnnotations = (data) => {
     // 检查 bbox 是否存在
     if (!person.bbox || !Array.isArray(person.bbox) || person.bbox.length < 4) {
       console.warn('Invalid person bbox:', person)
-      return
+      return  // 跳过当前person，继续下一个
     }
     const [x, y, w, h] = person.bbox
     ctx.strokeStyle = '#00ff00'
