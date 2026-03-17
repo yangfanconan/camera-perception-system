@@ -11,6 +11,7 @@ import json
 import cv2
 import numpy as np
 import base64
+import time
 from typing import Dict, List, Optional, Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -502,6 +503,72 @@ async def reset_calibration():
     return {"status": "success", "message": "Calibration reset"}
 
 
+class HeightCalibrationInput(BaseModel):
+    """身高校准输入"""
+    known_height: float
+
+
+class DistanceCalibrationInput(BaseModel):
+    """距离校准输入"""
+    known_distance: float
+
+
+@app.post("/api/calibration/height")
+async def calibrate_height(input_data: HeightCalibrationInput):
+    """
+    使用已知身高进行校准
+    
+    通过输入真实身高，校准系统的身高测量比例
+    """
+    if state.spatial_calc is None:
+        raise HTTPException(status_code=400, detail="Spatial calculator not initialized")
+    
+    try:
+        # 存储校准比例
+        state.height_calibration_ratio = input_data.known_height / 1.7  # 假设默认身高1.7m
+        
+        logger.info(f"Height calibration applied: {input_data.known_height}m, ratio: {state.height_calibration_ratio:.3f}")
+        
+        return {
+            "status": "success",
+            "message": f"Height calibration applied: {input_data.known_height}m",
+            "calibration_ratio": state.height_calibration_ratio
+        }
+    except Exception as e:
+        logger.error(f"Height calibration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Calibration failed: {str(e)}")
+
+
+@app.post("/api/calibration/distance")
+async def calibrate_distance(input_data: DistanceCalibrationInput):
+    """
+    使用已知距离进行校准
+    
+    通过输入真实距离，校准系统的距离测量比例
+    """
+    if state.spatial_calc is None:
+        raise HTTPException(status_code=400, detail="Spatial calculator not initialized")
+    
+    try:
+        # 存储距离校准比例
+        state.distance_calibration_ratio = input_data.known_distance / 2.0  # 假设默认距离2.0m
+        
+        # 应用到空间计算器
+        if hasattr(state.spatial_calc, 'distance_scale'):
+            state.spatial_calc.distance_scale = state.distance_calibration_ratio
+        
+        logger.info(f"Distance calibration applied: {input_data.known_distance}m, ratio: {state.distance_calibration_ratio:.3f}")
+        
+        return {
+            "status": "success",
+            "message": f"Distance calibration applied: {input_data.known_distance}m",
+            "calibration_ratio": state.distance_calibration_ratio
+        }
+    except Exception as e:
+        logger.error(f"Distance calibration failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Calibration failed: {str(e)}")
+
+
 @app.get("/api/calibration/preview")
 async def get_calibration_preview():
     """获取标定预览帧（带棋盘格检测）"""
@@ -941,12 +1008,53 @@ async def websocket_data(websocket: WebSocket):
         logger.error(traceback.format_exc())
 
 
+@app.get("/api/export/data")
+async def export_data(start_time: Optional[float] = None, end_time: Optional[float] = None):
+    """
+    导出检测数据
+
+    导出指定时间范围内的检测数据为 JSON 格式
+
+    Args:
+        start_time: 开始时间戳（可选）
+        end_time: 结束时间戳（可选）
+    """
+    try:
+        # 构建导出数据
+        export_data = {
+            "export_time": time.time(),
+            "export_date": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "system_info": {
+                "camera_opened": state.camera.is_opened() if state.camera else False,
+                "calibrated": state.calibrated,
+                "fps": state.fps if hasattr(state, 'fps') else 0
+            },
+            "data": []
+        }
+
+        # 如果有检测数据存储，这里可以添加过滤逻辑
+        # 目前返回空数据或示例数据
+
+        # 返回 JSON 数据
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            content=export_data,
+            headers={
+                "Content-Disposition": f"attachment; filename=detection_data_{time.strftime('%Y%m%d_%H%M%S')}.json"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Export failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+
+
 # ==================== 主程序 ====================
 
 def main():
     """启动服务"""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description='FastAPI 服务')
     parser.add_argument('--host', type=str, default='0.0.0.0',
                        help='监听地址')
@@ -954,15 +1062,15 @@ def main():
                        help='端口号')
     parser.add_argument('--reload', action='store_true',
                        help='启用热重载')
-    
+
     args = parser.parse_args()
-    
+
     # 设置运行状态
     state.running = True
-    
+
     # 启动服务
     logger.info(f"Starting server at {args.host}:{args.port}")
-    
+
     uvicorn.run(
         "src.api.main:app",
         host=args.host,
