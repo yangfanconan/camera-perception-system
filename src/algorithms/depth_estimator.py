@@ -235,8 +235,38 @@ class DepthEstimator:
                 return None
         
         try:
-            # 转换为 RGB
-            img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # 确保图像格式正确
+            if image is None or image.size == 0:
+                logger.error("Invalid input image: None or empty")
+                return None
+            
+            # 检查图像维度
+            if len(image.shape) == 2:
+                # 灰度图，转换为 3 通道
+                logger.debug("Converting grayscale to 3-channel")
+                image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            elif len(image.shape) != 3:
+                logger.error(f"Invalid image shape: {image.shape}, expected 2 or 3 dimensions")
+                return None
+            
+            # 检查通道数
+            if image.shape[2] not in [1, 3, 4]:
+                logger.error(f"Invalid number of channels: {image.shape[2]}, expected 1, 3, or 4")
+                return None
+            
+            # 确保图像是 uint8 类型
+            if image.dtype != np.uint8:
+                image = (image * 255).astype(np.uint8) if image.max() <= 1.0 else image.astype(np.uint8)
+            
+            # 转换为 RGB（如果是 BGR）
+            if image.shape[2] == 3:
+                img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            elif image.shape[2] == 4:
+                img_rgb = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+            elif image.shape[2] == 1:
+                img_rgb = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+            else:
+                img_rgb = image
             
             # 应用变换
             input_batch = self.transform(img_rgb).to(self.device)

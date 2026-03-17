@@ -254,6 +254,17 @@ class HandDetector:
             logger.error(f"Hand detection error: {e}")
             return []
 
+    def close(self):
+        """关闭手部检测器"""
+        try:
+            if self.hand_landmarker is not None:
+                # MediaPipe tasks API 没有明确的 close 方法
+                # 但我们可以设置为 None 来释放引用
+                self.hand_landmarker = None
+                logger.info("Hand detector closed")
+        except Exception as e:
+            logger.warning(f"Error closing hand detector: {e}")
+
 
 
 class CombinedDetector:
@@ -298,7 +309,11 @@ class CombinedDetector:
     
     def close(self):
         """关闭检测器"""
-        self.hand_detector.close()
+        try:
+            if hasattr(self.hand_detector, 'close'):
+                self.hand_detector.close()
+        except Exception as e:
+            logger.warning(f"Error closing hand detector: {e}")
 
 
 def visualize_detections(
