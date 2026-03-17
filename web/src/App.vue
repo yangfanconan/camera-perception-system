@@ -671,19 +671,31 @@ const connectWebSocket = () => {
   
   dataWs.onmessage = (event) => {
     const data = JSON.parse(event.data)
-    
-    // 更新检测数据
+
+    // 确保数据完整性
+    if (!data) {
+      console.warn('Received empty data')
+      return
+    }
+
+    // 更新检测数据（确保数组存在）
     detectionData.persons = data.persons || []
     detectionData.hands = data.hands || []
-    
+
     // 更新 FPS
     systemStatus.fps = Math.round(1000 / (data.timestamp_diff || 50))
-    
+
+    // 准备绘制数据（确保数组存在）
+    const drawData = {
+      persons: data.persons || [],
+      hands: data.hands || []
+    }
+
     // 绘制标注
-    drawAnnotations(data)
-    
+    drawAnnotations(drawData)
+
     // 绘制顶视图
-    drawTopView(data)
+    drawTopView(drawData)
   }
   
   // 心跳
@@ -744,6 +756,11 @@ const drawAnnotations = (data) => {
 
   // 绘制人体
   data.persons?.forEach(person => {
+    // 检查 bbox 是否存在
+    if (!person.bbox || !Array.isArray(person.bbox) || person.bbox.length < 4) {
+      console.warn('Invalid person bbox:', person)
+      return
+    }
     const [x, y, w, h] = person.bbox
     ctx.strokeStyle = '#00ff00'
     ctx.lineWidth = 2 * Math.min(scaleX, scaleY)
@@ -770,6 +787,11 @@ const drawAnnotations = (data) => {
 
   // 绘制手部
   data.hands?.forEach(hand => {
+    // 检查 bbox 是否存在
+    if (!hand.bbox || !Array.isArray(hand.bbox) || hand.bbox.length < 4) {
+      console.warn('Invalid hand bbox:', hand)
+      return
+    }
     const [x, y, w, h] = hand.bbox
     ctx.strokeStyle = '#0088ff'
     ctx.lineWidth = 2 * Math.min(scaleX, scaleY)
