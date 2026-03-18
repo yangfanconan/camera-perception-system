@@ -32,8 +32,8 @@ class DepthEnhancedDistanceEstimator:
     3. 边界框占比估计（备选）
     """
     
-    def __init__(self, fx: float = 650.0, cx: float = 320.0, 
-                 use_depth: bool = True, depth_weight: float = 0.6):
+    def __init__(self, fx: float = 650.0, cx: float = 320.0,
+                 use_depth: bool = True, depth_weight: float = 0.3):
         """
         初始化
         
@@ -81,18 +81,21 @@ class DepthEnhancedDistanceEstimator:
         """
         estimates = []
         
-        # 1. 深度估计
+        # 1. 深度估计（带合理性检查）
         if self.use_depth:
             self._ensure_depth_estimator()
             if self.depth_estimator:
                 depth_dist, depth_conf = self._estimate_from_depth(image, bbox)
-                if depth_dist > 0:
+                # 合理性检查：深度应该在 0.2m - 5m 范围内
+                if 0.2 <= depth_dist <= 5.0:
                     estimates.append({
                         'distance': depth_dist,
                         'confidence': depth_conf,
                         'method': 'depth',
                         'weight': self.depth_weight
                     })
+                else:
+                    logger.warning(f"Depth estimate {depth_dist:.2f}m out of reasonable range, skipping")
         
         # 2. 几何估计（头部）
         head_dist, head_conf = self.geometric_estimator.estimate_from_head(keypoints)

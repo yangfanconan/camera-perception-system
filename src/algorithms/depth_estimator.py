@@ -305,28 +305,30 @@ class DepthEstimator:
     def _convert_to_metric(self, relative_depth: np.ndarray) -> np.ndarray:
         """
         将相对深度转换为米制深度
-        
-        MiDaS 输出是相对深度，需要通过标定转换为绝对深度
-        这里使用简化的线性映射
-        
+
+        MiDaS 输出是相对逆深度（值越大表示越近）
+        需要转换为实际距离（值越大表示越远）
+
         Args:
             relative_depth: 相对深度图
-            
+
         Returns:
             绝对深度图（米）
         """
         # 避免除零
         epsilon = 1e-6
-        
+
         # 归一化到 0-1
         depth_min = relative_depth.min()
         depth_max = relative_depth.max()
         normalized = (relative_depth - depth_min) / (depth_max - depth_min + epsilon)
-        
-        # 转换到实际距离范围 (0.1m - 10m)
-        # 使用逆深度表示：越近值越大
-        metric_depth = 0.1 + 9.9 * (1.0 - normalized)
-        
+
+        # MiDaS: 值越大 = 越近
+        # 实际距离: 值越大 = 越远
+        # 转换: 近距离 (0.3m) 到远距离 (10m)
+        # 修正：normalized=1 (近) -> 0.3m, normalized=0 (远) -> 10m
+        metric_depth = 10.0 - 9.7 * normalized  # 10m ~ 0.3m
+
         return metric_depth
     
     def estimate_distance(self, image: np.ndarray, bbox: Tuple[int, int, int, int]) -> Tuple[float, float]:
