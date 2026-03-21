@@ -1161,6 +1161,345 @@ async def export_data(start_time: Optional[float] = None, end_time: Optional[flo
         raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
 
 
+# ==================== 新增 API 端点 ====================
+
+# 手势识别 API
+@app.get("/api/gestures")
+async def get_gestures():
+    """获取当前识别的手势"""
+    try:
+        from algorithms.gesture_recognition import get_gesture_recognizer
+        recognizer = get_gesture_recognizer()
+        
+        recent_gestures = recognizer.gesture_history[-10:] if recognizer.gesture_history else []
+        
+        return {
+            "status": "success",
+            "gestures": [g.to_dict() for g in recent_gestures],
+            "smoothed_gesture": recognizer.get_smoothed_gesture()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 跌倒检测 API
+@app.get("/api/falls")
+async def get_fall_events():
+    """获取跌倒事件"""
+    try:
+        from algorithms.fall_detection import get_fall_detector
+        detector = get_fall_detector()
+        
+        events = detector.get_fall_events()
+        
+        return {
+            "status": "success",
+            "events": [e.to_dict() for e in events[-20:]],
+            "total_events": len(events)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 跟踪状态 API
+@app.get("/api/tracks")
+async def get_tracks():
+    """获取当前跟踪状态"""
+    try:
+        from algorithms.person_tracker import get_person_tracker
+        tracker = get_person_tracker()
+        
+        tracks = tracker.get_active_tracks()
+        
+        return {
+            "status": "success",
+            "tracks": [t.to_dict() for t in tracks],
+            "stats": tracker.get_stats()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 报警 API
+@app.get("/api/alerts")
+async def get_alerts(since: float = None, alert_type: str = None):
+    """获取报警事件"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+        
+        alerts = system.get_alerts(since=since, alert_type=alert_type)
+        
+        return {
+            "status": "success",
+            "alerts": [a.to_dict() for a in alerts[-50:]],
+            "stats": system.get_stats()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/alerts/{alert_id}/acknowledge")
+async def acknowledge_alert(alert_id: int):
+    """确认报警"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+        
+        success = system.acknowledge_alert(alert_id)
+        
+        return {
+            "status": "success" if success else "not_found",
+            "alert_id": alert_id
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 报警区域 API
+@app.get("/api/zones")
+async def get_zones():
+    """获取报警区域"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+        
+        zones = [
+            {
+                "id": zone.zone_id,
+                "name": zone.name,
+                "polygon": zone.polygon,
+                "type": zone.zone_type,
+                "enabled": zone.enabled
+            }
+            for zone in system.alert_zones.values()
+        ]
+        
+        return {
+            "status": "success",
+            "zones": zones
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+class ZoneConfig(BaseModel):
+    """区域配置"""
+    zone_id: str
+    name: str
+    polygon: List[List[int]]
+    zone_type: str = "restricted"
+    alert_type: str = "intrusion"
+
+
+@app.post("/api/zones")
+async def create_zone(config: ZoneConfig):
+    """创建报警区域"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+        
+        polygon = [tuple(p) for p in config.polygon]
+        
+        system.add_zone(
+            zone_id=config.zone_id,
+            name=config.name,
+            polygon=polygon,
+            zone_type=config.zone_type,
+            alert_type=config.alert_type
+        )
+        
+        return {
+            "status": "success",
+            "zone_id": config.zone_id
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/zones/{zone_id}")
+async def delete_zone(zone_id: str):
+    """删除报警区域"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+        
+        system.remove_zone(zone_id)
+        
+        return {
+            "status": "success",
+            "zone_id": zone_id
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 深度校准 API
+@app.get("/api/depth/calibration")
+async def get_depth_calibration():
+    """获取深度校准参数"""
+    try:
+        from algorithms.depth_calibration import get_depth_calibrator
+        calibrator = get_depth_calibrator()
+        
+        return {
+            "status": "success",
+            "params": calibrator.get_params()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+class DepthCalibrationPoint(BaseModel):
+    """深度校准点"""
+    pixel_depth: float
+    real_depth: float
+
+
+@app.post("/api/depth/calibration")
+async def add_depth_calibration_point(point: DepthCalibrationPoint):
+    """添加深度校准点"""
+    try:
+        from algorithms.depth_calibration import get_depth_calibrator
+        calibrator = get_depth_calibrator()
+        
+        calibrator.add_calibration_point(
+            pixel_depth=point.pixel_depth,
+            real_depth=point.real_depth
+        )
+        
+        return {
+            "status": "success",
+            "num_points": len(calibrator.calibration_points)
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/depth/calibration/calibrate")
+async def calibrate_depth(method: str = "linear"):
+    """执行深度校准"""
+    try:
+        from algorithms.depth_calibration import get_depth_calibrator
+        calibrator = get_depth_calibrator()
+        
+        success = calibrator.calibrate(method=method)
+        
+        if success:
+            calibrator.save_params()
+        
+        return {
+            "status": "success" if success else "failed",
+            "params": calibrator.get_params()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 数据记录 API
+@app.get("/api/records/stats")
+async def get_record_stats():
+    """获取记录统计"""
+    try:
+        from algorithms.data_recorder import get_data_recorder
+        recorder = get_data_recorder()
+        
+        return {
+            "status": "success",
+            "stats": recorder.get_session_stats()
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/records/trajectories")
+async def get_trajectories():
+    """获取轨迹数据"""
+    try:
+        from algorithms.data_recorder import get_data_recorder
+        recorder = get_data_recorder()
+        
+        trajectories = recorder.get_all_trajectories()
+        
+        return {
+            "status": "success",
+            "trajectories": [t.to_dict() for t in trajectories]
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/records/export")
+async def export_records(format: str = "json"):
+    """导出记录数据"""
+    try:
+        from algorithms.data_recorder import get_data_recorder
+        recorder = get_data_recorder()
+        
+        if format == "csv":
+            filepath = recorder.export_csv()
+        else:
+            filepath = recorder.export_json()
+        
+        return {
+            "status": "success",
+            "filepath": filepath
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 性能统计 API
+@app.get("/api/performance")
+async def get_performance():
+    """获取性能统计"""
+    try:
+        stats = {
+            "fps": state.fps,
+            "frame_count": state.frame_count,
+            "detection_time": state.last_detection_time,
+            "persons_detected": len(state.last_persons) if hasattr(state, 'last_persons') else 0,
+            "hands_detected": len(state.last_hands) if hasattr(state, 'last_hands') else 0
+        }
+        
+        return {
+            "status": "success",
+            "performance": stats
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 系统信息 API
+@app.get("/api/system/info")
+async def get_system_info():
+    """获取系统信息"""
+    import platform
+    import torch
+    
+    try:
+        info = {
+            "platform": platform.platform(),
+            "python_version": platform.python_version(),
+            "torch_version": torch.__version__,
+            "cuda_available": torch.cuda.is_available(),
+            "mps_available": torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False,
+            "camera_opened": state.camera is not None and state.camera.is_opened(),
+            "calibrated": state.calibrator is not None and state.calibrator.is_calibrated()
+        }
+        
+        if torch.cuda.is_available():
+            info["cuda_device"] = torch.cuda.get_device_name(0)
+            info["cuda_memory"] = torch.cuda.get_device_properties(0).total_memory / 1024**3
+        
+        return {
+            "status": "success",
+            "system": info
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== 主程序 ====================
 
 def main():

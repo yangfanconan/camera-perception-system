@@ -17,6 +17,11 @@
           <span v-if="systemStatus.calibrated" class="calibrated">✓ 已标定</span>
         </div>
       </div>
+      <div class="header-right">
+        <button class="theme-toggle" @click="toggleTheme" :title="isDarkTheme ? '切换到浅色模式' : '切换到深色模式'">
+          {{ isDarkTheme ? '☀️' : '🌙' }}
+        </button>
+      </div>
       <nav class="nav-tabs">
         <button :class="['tab', { active: currentTab === 'monitor' }]" @click="currentTab = 'monitor'">
           📺 实时监控
@@ -513,6 +518,25 @@ import Pose3DViewer from './components/Pose3DViewer.vue'
 
 // 当前页面
 const currentTab = ref('monitor')
+
+// 主题
+const isDarkTheme = ref(true)
+
+// 切换主题
+const toggleTheme = () => {
+  isDarkTheme.value = !isDarkTheme.value
+  document.documentElement.setAttribute('data-theme', isDarkTheme.value ? 'dark' : 'light')
+  localStorage.setItem('theme', isDarkTheme.value ? 'dark' : 'light')
+}
+
+// 初始化主题
+const initTheme = () => {
+  const savedTheme = localStorage.getItem('theme')
+  if (savedTheme) {
+    isDarkTheme.value = savedTheme === 'dark'
+  }
+  document.documentElement.setAttribute('data-theme', isDarkTheme.value ? 'dark' : 'light')
+}
 
 // 系统状态
 const systemStatus = reactive({
@@ -1413,6 +1437,9 @@ const updateCanvasSize = () => {
 }
 
 onMounted(() => {
+  // 初始化主题
+  initTheme()
+  
   fetchStatus()
   setInterval(fetchStatus, 2000)
 
@@ -1436,23 +1463,72 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* ==================== 主题变量 ==================== */
+:root {
+  --bg-primary: #0f0f1a;
+  --bg-secondary: #1a1a2e;
+  --bg-panel: rgba(26, 26, 46, 0.9);
+  --text-primary: #ffffff;
+  --text-secondary: #aaaaaa;
+  --border-color: #333355;
+  --accent-color: #00ff88;
+  --accent-secondary: #0088ff;
+}
+
+[data-theme="light"] {
+  --bg-primary: #f5f5f5;
+  --bg-secondary: #ffffff;
+  --bg-panel: rgba(255, 255, 255, 0.95);
+  --text-primary: #1a1a2e;
+  --text-secondary: #666666;
+  --border-color: #e0e0e0;
+  --accent-color: #00cc6a;
+  --accent-secondary: #0066cc;
+}
+
 /* ==================== 全局样式 ==================== */
 .app-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
-  color: #ffffff;
+  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  color: var(--text-primary);
 }
 
 .header {
   padding: 20px;
-  background: rgba(26, 26, 46, 0.9);
+  background: var(--bg-panel);
   backdrop-filter: blur(10px);
-  border-bottom: 1px solid #333355;
+  border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 15px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.theme-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent-color);
+  transform: scale(1.1);
 }
 
 @media (max-width: 768px) {
