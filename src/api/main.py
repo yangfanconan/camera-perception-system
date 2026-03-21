@@ -899,9 +899,9 @@ async def get_depth_heatmap():
         return {
             "status": "success",
             "heatmap": heatmap_base64,
-            "depth_min": float(depth_map.min()),
-            "depth_max": float(depth_map.max()),
-            "depth_mean": float(depth_map.mean())
+            "depth_min": float(np.min(depth_map)),
+            "depth_max": float(np.max(depth_map)),
+            "depth_mean": float(np.mean(depth_map)),
         }
     except Exception as e:
         logger.error(f"Depth heatmap error: {e}")
