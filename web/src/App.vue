@@ -217,6 +217,14 @@
               </div>
             </div>
           </div>
+          
+          <!-- 3D 姿态可视化 -->
+          <div class="panel" v-if="detectionData.persons.length > 0">
+            <Pose3DViewer 
+              :keypoints="detectionData.persons[0]?.keypoints || {}"
+              :depth="detectionData.persons[0]?.distance || 2.0"
+            />
+          </div>
         </div>
       </div>
 
@@ -499,6 +507,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import axios from 'axios'
+import Pose3DViewer from './components/Pose3DViewer.vue'
 
 // ==================== 状态定义 ====================
 
