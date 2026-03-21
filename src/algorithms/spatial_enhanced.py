@@ -330,6 +330,9 @@ class SpatialCalculatorEnhanced:
         # 上次更新时间（用于计算 dt）
         self.last_update_time: Dict[int, float] = {}
 
+        # 深度估计器（可选，由外部注入）
+        self.depth_estimator = None
+
         logger.info("SpatialCalculatorEnhanced initialized")
         logger.info(f"Head params: width={self.head_params.ref_head_width}m, "
                    f"eye_dist={self.head_params.ref_eye_distance}m")
@@ -858,6 +861,7 @@ class SpatialCalculatorEnhanced:
     def calc_person_metrics(
         self,
         person: Dict[str, Any],
+        image: np.ndarray = None,
         use_correction: bool = True,
         use_fusion: bool = True,
         prev_distance: float = None,
@@ -870,6 +874,7 @@ class SpatialCalculatorEnhanced:
 
         Args:
             person: 人体检测结果
+            image: 原始图像（用于深度估计）
             use_correction: 是否应用误差修正
             use_fusion: 是否应用多帧融合
             prev_distance: 上一帧的距离（用于速度约束）
@@ -900,6 +905,28 @@ class SpatialCalculatorEnhanced:
             image_height=image_height, image_width=image_width
         )
         
+        # 5. 深度估计融合（如果可用）
+        depth_distance = None
+        if self.depth_estimator is not None and image is not None:
+            try:
+                depth_result = self.depth_estimator.estimate_bbox_depth(image, bbox)
+                if depth_result is not None:
+                    # 使用边界框底部的深度作为距离估计
+                    depth_distance = depth_result['bottom']
+                    # 深度估计与几何方法融合
+                    if depth_distance > 0 and depth_distance < 15:  # 合理范围
+                        # 根据置信度加权融合
+                        # 深度估计在中远距离更准确，几何方法在近距离更准确
+                        if distance < 1.5:
+                            # 近距离：几何方法为主
+                            distance = distance * 0.7 + depth_distance * 0.3
+                            estimate_method += "+depth_near"
+                        else:
+                            # 中远距离：深度估计为主
+                            distance = distance * 0.3 + depth_distance * 0.7
+                            estimate_method += "+depth_far"
+            except Exception as e:
+                logger.debug(f"Depth estimation failed: {e}")
         # 调试日志
         bbox_area_ratio = (bbox[2] * bbox[3]) / (image_width * image_height)
         logger.info(f"Distance calc: body={body_distance:.2f}, head={head_distance:.2f}, "

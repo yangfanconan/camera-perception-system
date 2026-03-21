@@ -199,6 +199,15 @@ class SystemState:
         # 初始化标定器
         self.calibrator = CameraCalibrator(checkerboard_size=(9, 6), square_size=25.0)
 
+        # 初始化深度估计器
+        try:
+            from src.algorithms.depth_estimator import get_depth_estimator
+            self.depth_estimator = get_depth_estimator(backend='depth_anything_v2', model_size='small')
+            logger.info(f"Depth estimator initialized: backend={self.depth_estimator.backend}")
+        except Exception as e:
+            logger.warning(f"Depth estimator not available: {e}")
+            self.depth_estimator = None
+
         # 尝试加载标定参数
         calib_path = Path('calibration_data/calib_params.json')
         if calib_path.exists():
@@ -215,6 +224,9 @@ class SystemState:
                 dist_coeffs=[0.0, 0.0, 0.0, 0.0, 0.0]
             )
             self.spatial_calc = SpatialCalculatorEnhanced(default_calib)
+            # 将深度估计器传递给空间计算器
+            if self.depth_estimator:
+                self.spatial_calc.depth_estimator = self.depth_estimator
             logger.info(f"Spatial calculator initialized with default parameters: fx={DEFAULT_FX}, cx={DEFAULT_CX}")
 
         logger.info("System initialized")
