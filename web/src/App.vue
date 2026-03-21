@@ -26,6 +26,13 @@
         <button :class="['tab', { active: currentTab === 'monitor' }]" @click="currentTab = 'monitor'">
           📺 实时监控
         </button>
+        <button :class="['tab', { active: currentTab === 'dashboard' }]" @click="currentTab = 'dashboard'; fetchDashboardData()">
+          📊 数据仪表盘
+        </button>
+        <button :class="['tab', { active: currentTab === 'alerts' }]" @click="currentTab = 'alerts'; fetchAlerts()">
+          🚨 报警管理
+          <span v-if="unreadAlerts > 0" class="badge">{{ unreadAlerts }}</span>
+        </button>
         <button :class="['tab', { active: currentTab === 'calibration' }]" @click="currentTab = 'calibration'">
           🔧 相机标定
         </button>
@@ -505,6 +512,203 @@
           </div>
         </div>
       </div>
+
+      <!-- 数据仪表盘页面 -->
+      <div v-if="currentTab === 'dashboard'" class="dashboard-page">
+        <div class="dashboard-grid">
+          <!-- 系统状态卡片 -->
+          <div class="dashboard-card">
+            <h3>🖥️ 系统状态</h3>
+            <div class="status-grid">
+              <div class="status-item">
+                <span class="status-label">摄像头</span>
+                <span :class="['status-value', systemStatus.camera_opened ? 'online' : 'offline']">
+                  {{ systemStatus.camera_opened ? '已连接' : '未连接' }}
+                </span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">帧率</span>
+                <span class="status-value">{{ systemStatus.fps }} FPS</span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">标定状态</span>
+                <span :class="['status-value', systemStatus.calibrated ? 'calibrated' : '']">
+                  {{ systemStatus.calibrated ? '已标定' : '未标定' }}
+                </span>
+              </div>
+              <div class="status-item">
+                <span class="status-label">检测人数</span>
+                <span class="status-value">{{ dashboardData.persons_detected }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 性能监控卡片 -->
+          <div class="dashboard-card">
+            <h3>⚡ 性能监控</h3>
+            <div class="performance-bars">
+              <div class="perf-item">
+                <span class="perf-label">CPU</span>
+                <div class="perf-bar">
+                  <div class="perf-fill" :style="{ width: performanceData.cpu_percent + '%' }"
+                       :class="{ warning: performanceData.cpu_percent > 70, danger: performanceData.cpu_percent > 90 }"></div>
+                </div>
+                <span class="perf-value">{{ performanceData.cpu_percent?.toFixed(1) }}%</span>
+              </div>
+              <div class="perf-item">
+                <span class="perf-label">内存</span>
+                <div class="perf-bar">
+                  <div class="perf-fill" :style="{ width: performanceData.memory_percent + '%' }"
+                       :class="{ warning: performanceData.memory_percent > 70, danger: performanceData.memory_percent > 90 }"></div>
+                </div>
+                <span class="perf-value">{{ performanceData.memory_percent?.toFixed(1) }}%</span>
+              </div>
+              <div class="perf-item">
+                <span class="perf-label">检测耗时</span>
+                <div class="perf-bar">
+                  <div class="perf-fill" :style="{ width: Math.min(performanceData.detection_time / 2, 100) + '%' }"></div>
+                </div>
+                <span class="perf-value">{{ performanceData.detection_time?.toFixed(1) }}ms</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 检测统计卡片 -->
+          <div class="dashboard-card">
+            <h3>📊 检测统计</h3>
+            <div class="stats-grid">
+              <div class="stat-item">
+                <span class="stat-value">{{ dashboardData.total_persons || 0 }}</span>
+                <span class="stat-label">累计人数</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-value">{{ dashboardData.total_hands || 0 }}</span>
+                <span class="stat-label">累计手数</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-value">{{ dashboardData.total_alerts || 0 }}</span>
+                <span class="stat-label">报警次数</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-value">{{ dashboardData.total_falls || 0 }}</span>
+                <span class="stat-label">跌倒事件</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 跟踪状态卡片 -->
+          <div class="dashboard-card">
+            <h3>👥 跟踪状态</h3>
+            <div class="tracks-list" v-if="tracks.length > 0">
+              <div v-for="track in tracks" :key="track.track_id" class="track-item">
+                <span class="track-id">#{{ track.track_id }}</span>
+                <span class="track-conf">置信度: {{ (track.confidence * 100).toFixed(0) }}%</span>
+                <span class="track-age">存在: {{ track.duration?.toFixed(1) }}s</span>
+              </div>
+            </div>
+            <div v-else class="no-data">暂无跟踪数据</div>
+          </div>
+
+          <!-- 手势识别卡片 -->
+          <div class="dashboard-card">
+            <h3>👋 手势识别</h3>
+            <div class="gestures-list" v-if="gestures.length > 0">
+              <div v-for="gesture in gestures.slice(-5)" :key="gesture.timestamp" class="gesture-item">
+                <span class="gesture-icon">{{ getGestureIcon(gesture.gesture) }}</span>
+                <span class="gesture-name">{{ getGestureName(gesture.gesture) }}</span>
+                <span class="gesture-conf">{{ (gesture.confidence * 100).toFixed(0) }}%</span>
+              </div>
+            </div>
+            <div v-else class="no-data">暂无手势数据</div>
+          </div>
+
+          <!-- 动作识别卡片 -->
+          <div class="dashboard-card">
+            <h3>🏃 动作识别</h3>
+            <div class="actions-list" v-if="actions.length > 0">
+              <div v-for="action in actions.slice(-5)" :key="action.timestamp" class="action-item">
+                <span class="action-icon">{{ getActionIcon(action.action) }}</span>
+                <span class="action-name">{{ getActionName(action.action) }}</span>
+                <span class="action-duration">{{ action.duration?.toFixed(1) }}s</span>
+              </div>
+            </div>
+            <div v-else class="no-data">暂无动作数据</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 报警管理页面 -->
+      <div v-if="currentTab === 'alerts'" class="alerts-page">
+        <div class="alerts-header">
+          <h2>🚨 报警管理</h2>
+          <div class="alerts-actions">
+            <button class="btn btn-secondary" @click="fetchAlerts">🔄 刷新</button>
+            <button class="btn btn-warning" @click="acknowledgeAllAlerts">✓ 全部确认</button>
+          </div>
+        </div>
+
+        <!-- 报警统计 -->
+        <div class="alerts-stats">
+          <div class="alert-stat critical">
+            <span class="stat-num">{{ alertStats.critical || 0 }}</span>
+            <span class="stat-text">严重</span>
+          </div>
+          <div class="alert-stat high">
+            <span class="stat-num">{{ alertStats.high || 0 }}</span>
+            <span class="stat-text">高</span>
+          </div>
+          <div class="alert-stat medium">
+            <span class="stat-num">{{ alertStats.medium || 0 }}</span>
+            <span class="stat-text">中</span>
+          </div>
+          <div class="alert-stat low">
+            <span class="stat-num">{{ alertStats.low || 0 }}</span>
+            <span class="stat-text">低</span>
+          </div>
+        </div>
+
+        <!-- 报警列表 -->
+        <div class="alerts-list">
+          <div v-if="alerts.length === 0" class="no-alerts">
+            <span class="no-alerts-icon">✅</span>
+            <span>暂无报警事件</span>
+          </div>
+          <div v-for="alert in alerts" :key="alert.alert_id" 
+               :class="['alert-item', alert.severity, { acknowledged: alert.acknowledged }]">
+            <div class="alert-icon">{{ getAlertIcon(alert.alert_type) }}</div>
+            <div class="alert-content">
+              <div class="alert-title">{{ alert.message }}</div>
+              <div class="alert-meta">
+                <span class="alert-type">{{ alert.alert_type }}</span>
+                <span class="alert-time">{{ formatTime(alert.timestamp) }}</span>
+              </div>
+            </div>
+            <div class="alert-actions">
+              <button v-if="!alert.acknowledged" class="btn-small" @click="acknowledgeAlert(alert.alert_id)">
+                确认
+              </button>
+              <span v-else class="acknowledged-badge">已确认</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 报警区域管理 -->
+        <div class="zones-section">
+          <h3>📍 报警区域</h3>
+          <div class="zones-list">
+            <div v-for="zone in zones" :key="zone.id" class="zone-item">
+              <span class="zone-name">{{ zone.name }}</span>
+              <span :class="['zone-type', zone.type]">{{ zone.type }}</span>
+              <span :class="['zone-status', zone.enabled ? 'enabled' : 'disabled']">
+                {{ zone.enabled ? '启用' : '禁用' }}
+              </span>
+              <button class="btn-small" @click="toggleZone(zone.id)">
+                {{ zone.enabled ? '禁用' : '启用' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -560,6 +764,38 @@ const depthInfo = reactive({
   mean: 0
 })
 let heatmapInterval = null
+
+// ==================== 仪表盘数据 ====================
+const dashboardData = reactive({
+  persons_detected: 0,
+  hands_detected: 0,
+  total_persons: 0,
+  total_hands: 0,
+  total_alerts: 0,
+  total_falls: 0
+})
+
+const performanceData = reactive({
+  cpu_percent: 0,
+  memory_percent: 0,
+  fps: 0,
+  detection_time: 0
+})
+
+const tracks = ref([])
+const gestures = ref([])
+const actions = ref([])
+
+// ==================== 报警数据 ====================
+const alerts = ref([])
+const zones = ref([])
+const alertStats = reactive({
+  critical: 0,
+  high: 0,
+  medium: 0,
+  low: 0
+})
+const unreadAlerts = computed(() => alerts.value.filter(a => !a.acknowledged).length)
 
 // Canvas 引用
 const videoCanvas = ref(null)
@@ -736,6 +972,136 @@ const fetchDepthHeatmap = async () => {
   } catch (error) {
     console.error('获取深度热力图失败:', error)
   }
+}
+
+// ==================== 仪表盘数据获取 ====================
+const fetchDashboardData = async () => {
+  try {
+    // 获取性能数据
+    const perfRes = await axios.get(`${API_BASE}/api/performance`)
+    if (perfRes.data.status === 'success') {
+      Object.assign(performanceData, perfRes.data.performance)
+    }
+    
+    // 获取跟踪数据
+    const tracksRes = await axios.get(`${API_BASE}/api/tracks`)
+    if (tracksRes.data.status === 'success') {
+      tracks.value = tracksRes.data.tracks
+    }
+    
+    // 获取手势数据
+    const gesturesRes = await axios.get(`${API_BASE}/api/gestures`)
+    if (gesturesRes.data.status === 'success') {
+      gestures.value = gesturesRes.data.gestures
+    }
+    
+    // 获取记录统计
+    const statsRes = await axios.get(`${API_BASE}/api/records/stats`)
+    if (statsRes.data.status === 'success') {
+      Object.assign(dashboardData, statsRes.data.stats)
+    }
+  } catch (error) {
+    console.error('获取仪表盘数据失败:', error)
+  }
+}
+
+// ==================== 报警管理 ====================
+const fetchAlerts = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/alerts`)
+    if (res.data.status === 'success') {
+      alerts.value = res.data.alerts
+      
+      // 计算统计
+      alertStats.critical = alerts.value.filter(a => a.severity === 'critical').length
+      alertStats.high = alerts.value.filter(a => a.severity === 'high').length
+      alertStats.medium = alerts.value.filter(a => a.severity === 'medium').length
+      alertStats.low = alerts.value.filter(a => a.severity === 'low').length
+    }
+    
+    // 获取报警区域
+    const zonesRes = await axios.get(`${API_BASE}/api/zones`)
+    if (zonesRes.data.status === 'success') {
+      zones.value = zonesRes.data.zones
+    }
+  } catch (error) {
+    console.error('获取报警数据失败:', error)
+  }
+}
+
+const acknowledgeAlert = async (alertId) => {
+  try {
+    await axios.post(`${API_BASE}/api/alerts/${alertId}/acknowledge`)
+    await fetchAlerts()
+  } catch (error) {
+    console.error('确认报警失败:', error)
+  }
+}
+
+const acknowledgeAllAlerts = async () => {
+  for (const alert of alerts.value.filter(a => !a.acknowledged)) {
+    await acknowledgeAlert(alert.alert_id)
+  }
+}
+
+const toggleZone = async (zoneId) => {
+  const zone = zones.value.find(z => z.id === zoneId)
+  if (zone) {
+    zone.enabled = !zone.enabled
+  }
+}
+
+// ==================== 辅助函数 ====================
+const getGestureIcon = (gesture) => {
+  const icons = {
+    'thumbs_up': '👍', 'thumbs_down': '👎', 'victory': '✌️', 'ok': '👌',
+    'fist': '✊', 'open_palm': '🖐️', 'pointing': '👆', 'rock': '🤘',
+    'call_me': '🤙', 'one': '☝️', 'two': '✌️', 'three': '3️⃣',
+    'four': '4️⃣', 'five': '🖐️', 'unknown': '❓'
+  }
+  return icons[gesture] || '❓'
+}
+
+const getGestureName = (gesture) => {
+  const names = {
+    'thumbs_up': '点赞', 'thumbs_down': '踩', 'victory': '胜利', 'ok': 'OK',
+    'fist': '握拳', 'open_palm': '张开手掌', 'pointing': '指向', 'rock': '摇滚',
+    'call_me': '打电话', 'one': '数字1', 'two': '数字2', 'three': '数字3',
+    'four': '数字4', 'five': '数字5', 'unknown': '未知'
+  }
+  return names[gesture] || gesture
+}
+
+const getActionIcon = (action) => {
+  const icons = {
+    'standing': '🧍', 'sitting': '🪑', 'lying': '🛏️', 'walking': '🚶',
+    'running': '🏃', 'jumping': '🦘', 'waving': '👋', 'raising_hand': '🙋',
+    'clapping': '👏', 'fighting': '👊', 'falling': '⬇️', 'unknown': '❓'
+  }
+  return icons[action] || '❓'
+}
+
+const getActionName = (action) => {
+  const names = {
+    'standing': '站立', 'sitting': '坐着', 'lying': '躺着', 'walking': '行走',
+    'running': '跑步', 'jumping': '跳跃', 'waving': '挥手', 'raising_hand': '举手',
+    'clapping': '拍手', 'fighting': '打架', 'falling': '跌倒', 'unknown': '未知'
+  }
+  return names[action] || action
+}
+
+const getAlertIcon = (type) => {
+  const icons = {
+    'fall': '⚠️', 'intrusion': '🚨', 'crossing': '🚧', 'loitering': '⏰',
+    'crowd': '👥', 'abnormal': '❗', 'exit': '🚪'
+  }
+  return icons[type] || '🔔'
+}
+
+const formatTime = (timestamp) => {
+  if (!timestamp) return ''
+  const date = new Date(timestamp * 1000)
+  return date.toLocaleString('zh-CN')
 }
 
 // ==================== WebSocket 连接 ====================
@@ -2266,5 +2632,323 @@ input:checked + .slider:before {
 .data-row span:first-child {
   min-width: 80px;
   color: #888;
+}
+
+/* ==================== 仪表盘样式 ==================== */
+.dashboard-page {
+  padding: 20px;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.dashboard-card {
+  background: var(--bg-panel);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.dashboard-card h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  color: var(--accent-color);
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.status-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.status-value {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.status-value.online { color: #00ff88; }
+.status-value.offline { color: #ff4444; }
+.status-value.calibrated { color: #00aaff; }
+
+.performance-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.perf-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.perf-label {
+  width: 70px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.perf-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.perf-fill {
+  height: 100%;
+  background: var(--accent-color);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.perf-fill.warning { background: #ffaa00; }
+.perf-fill.danger { background: #ff4444; }
+
+.perf-value {
+  width: 60px;
+  text-align: right;
+  font-size: 13px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 15px;
+}
+
+.stat-item {
+  text-align: center;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: bold;
+  color: var(--accent-color);
+}
+
+.stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.tracks-list, .gestures-list, .actions-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.track-item, .gesture-item, .action-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  margin-bottom: 5px;
+  font-size: 13px;
+}
+
+.track-id { color: var(--accent-color); font-weight: bold; }
+.gesture-icon, .action-icon { font-size: 20px; margin-right: 10px; }
+.no-data { text-align: center; color: var(--text-secondary); padding: 20px; }
+
+/* ==================== 报警页面样式 ==================== */
+.alerts-page {
+  padding: 20px;
+}
+
+.alerts-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.alerts-header h2 {
+  margin: 0;
+}
+
+.alerts-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.alerts-stats {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.alert-stat {
+  flex: 1;
+  text-align: center;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--bg-panel);
+}
+
+.alert-stat.critical { border-left: 4px solid #ff4444; }
+.alert-stat.high { border-left: 4px solid #ff8800; }
+.alert-stat.medium { border-left: 4px solid #ffaa00; }
+.alert-stat.low { border-left: 4px solid #00aaff; }
+
+.alert-stat .stat-num {
+  display: block;
+  font-size: 32px;
+  font-weight: bold;
+}
+
+.alert-stat .stat-text {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.alerts-list {
+  background: var(--bg-panel);
+  border-radius: 12px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.no-alerts {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-secondary);
+}
+
+.no-alerts-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+.alert-item {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.alert-item.critical { border-left: 4px solid #ff4444; }
+.alert-item.high { border-left: 4px solid #ff8800; }
+.alert-item.medium { border-left: 4px solid #ffaa00; }
+.alert-item.low { border-left: 4px solid #00aaff; }
+.alert-item.acknowledged { opacity: 0.6; }
+
+.alert-icon {
+  font-size: 24px;
+}
+
+.alert-content {
+  flex: 1;
+}
+
+.alert-title {
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.alert-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.alert-type {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-right: 10px;
+}
+
+.alert-time {
+  color: var(--text-secondary);
+}
+
+.acknowledged-badge {
+  font-size: 12px;
+  color: var(--accent-color);
+}
+
+.zones-section {
+  background: var(--bg-panel);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.zones-section h3 {
+  margin: 0 0 15px 0;
+}
+
+.zone-item {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.zone-name {
+  flex: 1;
+  font-weight: bold;
+}
+
+.zone-type {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.zone-type.forbidden { background: rgba(255, 68, 68, 0.3); }
+.zone-type.restricted { background: rgba(255, 170, 0, 0.3); }
+.zone-type.safe { background: rgba(0, 255, 136, 0.3); }
+
+.zone-status.enabled { color: var(--accent-color); }
+.zone-status.disabled { color: #ff4444; }
+
+/* 徽章样式 */
+.badge {
+  background: #ff4444;
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 10px;
+  margin-left: 5px;
+}
+
+.btn-small {
+  padding: 4px 12px;
+  font-size: 12px;
+  background: var(--accent-color);
+  color: #000;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.btn-small:hover {
+  opacity: 0.9;
 }
 </style>
