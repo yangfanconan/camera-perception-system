@@ -14,7 +14,7 @@ from collections import deque
 from loguru import logger
 
 from .calibration import CalibrationParams
-from ..utils.constants import (
+from utils.constants import (
     # 图像常量
     DEFAULT_IMAGE_WIDTH, DEFAULT_IMAGE_HEIGHT,
     # 身体部位常量

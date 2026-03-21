@@ -651,7 +651,7 @@ const loadCalibration = async () => {
 
 const connectWebSocket = () => {
   // 视频流 WebSocket - 直接连接后端
-  videoWs = new WebSocket('ws://localhost:8001/ws/video')
+  videoWs = new WebSocket('ws://localhost:8000/ws/video')
   videoWs.binaryType = 'arraybuffer'
 
   // 存储最新的检测数据用于绘制
@@ -673,7 +673,7 @@ const connectWebSocket = () => {
   }
 
   // 数据 WebSocket - 直接连接后端
-  dataWs = new WebSocket('ws://localhost:8001/ws/data')
+  dataWs = new WebSocket('ws://localhost:8000/ws/data')
 
   dataWs.onmessage = (event) => {
     const data = JSON.parse(event.data)

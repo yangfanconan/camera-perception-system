@@ -119,6 +119,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 挂载前端静态文件
+WEB_DIST = Path(__file__).parent.parent.parent / "web" / "dist"
+if WEB_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
+
 
 # ==================== 全局异常处理 ====================
 
@@ -200,7 +205,7 @@ class SystemState:
             self.load_calibration(str(calib_path))
         else:
             # 使用默认参数初始化空间计算器
-            from src.algorithms.spatial import SpatialCalculatorEnhanced
+            from src.algorithms.spatial_enhanced import SpatialCalculatorEnhanced
             from src.algorithms.calibration import CalibrationParams
             from src.utils.constants import DEFAULT_FX, DEFAULT_FY, DEFAULT_CX, DEFAULT_CY
             # 创建默认标定参数（根据常见笔记本摄像头参数优化）
@@ -221,7 +226,7 @@ class SystemState:
 
         calib_params = CalibrationParams.from_dict(data)
         # 使用新的空间计算模块
-        from src.algorithms.spatial import SpatialCalculatorEnhanced
+        from src.algorithms.spatial_enhanced import SpatialCalculatorEnhanced
         self.spatial_calc = SpatialCalculatorEnhanced(calib_params)
         self.calibrated = True
 
@@ -269,19 +274,21 @@ async def shutdown_event():
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    """根路径"""
-    return """
-    <html>
-        <head>
-            <title>摄像头实时感知系统</title>
-        </head>
-        <body>
-            <h1>🎥 摄像头实时感知 + 空间计量系统</h1>
-            <p>API 文档：<a href="/docs">/docs</a></p>
-            <p>前端页面：访问 <code>http://localhost:5173</code></p>
-        </body>
-    </html>
-    """
+    """根路径 - 返回前端页面"""
+    index_path = WEB_DIST / "index.html"
+    if index_path.exists():
+        return HTMLResponse(content=index_path.read_text(encoding='utf-8'))
+    else:
+        return """
+        <html>
+            <head><title>摄像头实时感知系统</title></head>
+            <body>
+                <h1>🎥 摄像头实时感知系统</h1>
+                <p>前端未构建，请运行: cd web && npm run build</p>
+                <p>API 文档：<a href="/docs">/docs</a></p>
+            </body>
+        </html>
+        """
 
 
 @app.get("/api/status", response_model=SystemStatus)

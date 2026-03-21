@@ -10,7 +10,13 @@ from .detection import (
     DetectionResult,
     visualize_detections
 )
-from .spatial import SpatialCalculatorEnhanced
+from .spatial import SpatialCalculator
+from .spatial_enhanced import (
+    SpatialCalculatorEnhanced,
+    HeadSizeParams,
+    KalmanParams,
+    CloseRangeParams
+)
 
 __all__ = [
     'CameraCalibrator',
@@ -20,5 +26,9 @@ __all__ = [
     'CombinedDetector',
     'DetectionResult',
     'visualize_detections',
+    'SpatialCalculator',
     'SpatialCalculatorEnhanced',
+    'HeadSizeParams',
+    'KalmanParams',
+    'CloseRangeParams',
 ]
