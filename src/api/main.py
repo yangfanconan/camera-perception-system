@@ -889,7 +889,9 @@ async def get_depth_heatmap():
             return {"status": "error", "message": "Depth estimation failed"}
         
         # 转换为热力图
-        depth_normalized = ((depth_map - depth_map.min()) / (depth_map.max() - depth_map.min() + 1e-6) * 255).astype(np.uint8)
+        depth_min = float(np.min(depth_map))
+        depth_max = float(np.max(depth_map))
+        depth_normalized = ((depth_map - depth_min) / (depth_max - depth_min + 1e-6) * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
         
         # 编码为 base64
