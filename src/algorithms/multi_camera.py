@@ -10,7 +10,7 @@
 
 import numpy as np
 import cv2
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from collections import OrderedDict
 from loguru import logger

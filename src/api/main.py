@@ -1109,6 +1109,30 @@ async def websocket_data(websocket: WebSocket):
                 logger.error(f"Failed to send WebSocket message: {e}")
                 break
 
+            # ==================== 集成新功能 ====================
+            try:
+                # 1. 记录数据到分析模块
+                from algorithms.data_analysis import get_data_analyzer
+                analyzer = get_data_analyzer()
+                analyzer.record_metric('person_count', len(result.persons))
+                analyzer.record_metric('hand_count', len(result.hands))
+                analyzer.record_metric('fps', 1000 / max(total_time, 1))
+                analyzer.record_metric('detection_time', detect_time)
+                
+                # 2. 场景分析
+                from algorithms.scene_analysis import get_scene_analyzer
+                scene_analyzer = get_scene_analyzer()
+                scene_analyzer.analyze(frame, metrics["persons"])
+                
+                # 3. 录制视频
+                from algorithms.video_recording import get_video_recorder
+                recorder = get_video_recorder()
+                if recorder.is_recording:
+                    recorder.write_frame(frame)
+                    
+            except Exception as e:
+                logger.debug(f"Integration error: {e}")
+
             # 帧率控制（数据推送频率可降低）
             await asyncio.sleep(DATA_PUSH_INTERVAL)  # 使用配置的数据推送间隔
 
