@@ -185,6 +185,10 @@ class SystemState:
 
         # WebSocket 连接
         self.websocket_connections: List[WebSocket] = []
+
+        # 轨迹跟踪器
+        self.trajectories: Dict[int, List[Dict]] = {}  # track_id -> [{x, y, t}, ...]
+        self.max_trajectory_length = 60  # 保留最近 60 帧（约 2 秒）
     
     async def initialize(self):
         """初始化系统"""
@@ -854,7 +858,7 @@ async def get_spatial_config():
 async def get_depth_stats():
     """获取深度估计统计"""
     from src.algorithms.depth_estimator import get_depth_estimator
-    
+
     try:
         estimator = get_depth_estimator()
         return {
@@ -862,6 +866,45 @@ async def get_depth_stats():
             "stats": estimator.get_stats()
         }
     except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/depth/heatmap")
+async def get_depth_heatmap():
+    """获取深度热力图"""
+    if not state.camera or not state.camera.is_opened():
+        return {"status": "error", "message": "Camera not opened"}
+    
+    try:
+        frame = state.camera.read()
+        if frame is None:
+            return {"status": "error", "message": "Failed to read frame"}
+        
+        if state.depth_estimator is None:
+            return {"status": "error", "message": "Depth estimator not initialized"}
+        
+        # 估计深度
+        depth_map = state.depth_estimator.estimate(frame)
+        if depth_map is None:
+            return {"status": "error", "message": "Depth estimation failed"}
+        
+        # 转换为热力图
+        depth_normalized = ((depth_map - depth_map.min()) / (depth_map.max() - depth_map.min() + 1e-6) * 255).astype(np.uint8)
+        heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+        
+        # 编码为 base64
+        _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        return {
+            "status": "success",
+            "heatmap": heatmap_base64,
+            "depth_min": float(depth_map.min()),
+            "depth_max": float(depth_map.max()),
+            "depth_mean": float(depth_map.mean())
+        }
+    except Exception as e:
+        logger.error(f"Depth heatmap error: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -1008,6 +1051,54 @@ async def websocket_data(websocket: WebSocket):
                 "persons_count": len(result.persons),
                 "hands_count": len(result.hands)
             }
+
+            # 更新轨迹
+            import time as time_module
+            current_time = time_module.time()
+            for person in metrics["persons"]:
+                track_id = person.get("track_id")
+                if track_id is not None:
+                    bbox = person.get("bbox", [])
+                    if len(bbox) >= 4:
+                        cx = bbox[0] + bbox[2] / 2
+                        cy = bbox[1] + bbox[3] / 2
+                        
+                        # 添加轨迹点
+                        if track_id not in state.trajectories:
+                            state.trajectories[track_id] = []
+                        
+                        state.trajectories[track_id].append({
+                            "x": cx,
+                            "y": cy,
+                            "t": current_time,
+                            "distance": person.get("distance", 0)
+                        })
+                        
+                        # 限制轨迹长度
+                        if len(state.trajectories[track_id]) > state.max_trajectory_length:
+                            state.trajectories[track_id].pop(0)
+                        
+                        # 计算速度
+                        traj = state.trajectories[track_id]
+                        if len(traj) >= 2:
+                            dt = traj[-1]["t"] - traj[-2]["t"]
+                            if dt > 0:
+                                dx = traj[-1]["x"] - traj[-2]["x"]
+                                dy = traj[-1]["y"] - traj[-2]["y"]
+                                # 像素速度 -> 实际速度（简化）
+                                pixel_speed = (dx**2 + dy**2) ** 0.5 / dt
+                                # 假设 100 像素 ≈ 0.3 米（需要根据距离调整）
+                                distance = person.get("distance", 2.0)
+                                scale = 0.3 * distance / 2.0  # 距离越远，像素代表的实际距离越大
+                                real_speed = pixel_speed * scale
+                                person["velocity"] = {
+                                    "vx": dx / dt * scale,
+                                    "vy": dy / dt * scale,
+                                    "speed": real_speed
+                                }
+                        
+                        # 添加轨迹到输出
+                        person["trajectory"] = state.trajectories[track_id][-30:]  # 最近 30 帧
 
             # 发送
             try:

@@ -60,6 +60,22 @@
             <button class="btn btn-warning" @click="exportData" :disabled="detectionData.persons.length === 0">
               📊 导出数据
             </button>
+            <button 
+              :class="['btn', showDepthHeatmap ? 'btn-info' : 'btn-secondary']" 
+              @click="toggleDepthHeatmap" 
+              :disabled="!systemStatus.camera_opened"
+            >
+              🌡️ {{ showDepthHeatmap ? '关闭热力图' : '深度热力图' }}
+            </button>
+          </div>
+          
+          <!-- 深度热力图显示 -->
+          <div v-if="showDepthHeatmap && depthHeatmap" class="heatmap-container">
+            <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" />
+            <div class="heatmap-info">
+              <span>深度范围: {{ depthInfo.min?.toFixed(2) }}m - {{ depthInfo.max?.toFixed(2) }}m</span>
+              <span>平均深度: {{ depthInfo.mean?.toFixed(2) }}m</span>
+            </div>
           </div>
         </div>
 
@@ -502,6 +518,16 @@ const detectionData = reactive({
   hands: []
 })
 
+// 深度热力图
+const showDepthHeatmap = ref(false)
+const depthHeatmap = ref(null)
+const depthInfo = reactive({
+  min: 0,
+  max: 0,
+  mean: 0
+})
+let heatmapInterval = null
+
 // Canvas 引用
 const videoCanvas = ref(null)
 const videoContainer = ref(null)
@@ -647,6 +673,38 @@ const loadCalibration = async () => {
   }
 }
 
+// 深度热力图切换
+const toggleDepthHeatmap = async () => {
+  showDepthHeatmap.value = !showDepthHeatmap.value
+  
+  if (showDepthHeatmap.value) {
+    // 开始获取热力图
+    fetchDepthHeatmap()
+    heatmapInterval = setInterval(fetchDepthHeatmap, 500)  // 每 500ms 更新一次
+  } else {
+    // 停止获取热力图
+    if (heatmapInterval) {
+      clearInterval(heatmapInterval)
+      heatmapInterval = null
+    }
+    depthHeatmap.value = null
+  }
+}
+
+const fetchDepthHeatmap = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/api/depth/heatmap`)
+    if (response.data.status === 'success') {
+      depthHeatmap.value = response.data.heatmap
+      depthInfo.min = response.data.depth_min
+      depthInfo.max = response.data.depth_max
+      depthInfo.mean = response.data.depth_mean
+    }
+  } catch (error) {
+    console.error('获取深度热力图失败:', error)
+  }
+}
+
 // ==================== WebSocket 连接 ====================
 
 const connectWebSocket = () => {
@@ -765,6 +823,35 @@ const drawAnnotations = (data) => {
       return  // 跳过当前person，继续下一个
     }
     const [x, y, w, h] = person.bbox
+    
+    // 绘制轨迹
+    if (person.trajectory && person.trajectory.length > 1) {
+      ctx.beginPath()
+      ctx.strokeStyle = 'rgba(0, 255, 255, 0.6)'
+      ctx.lineWidth = 2 * Math.min(scaleX, scaleY)
+      
+      person.trajectory.forEach((point, idx) => {
+        const px = point.x * scaleX
+        const py = point.y * scaleY
+        if (idx === 0) {
+          ctx.moveTo(px, py)
+        } else {
+          ctx.lineTo(px, py)
+        }
+      })
+      ctx.stroke()
+      
+      // 绘制轨迹点（渐变透明度）
+      person.trajectory.forEach((point, idx) => {
+        const alpha = (idx + 1) / person.trajectory.length
+        ctx.fillStyle = `rgba(0, 255, 255, ${alpha * 0.8})`
+        ctx.beginPath()
+        ctx.arc(point.x * scaleX, point.y * scaleY, 3 * Math.min(scaleX, scaleY), 0, Math.PI * 2)
+        ctx.fill()
+      })
+    }
+    
+    // 绘制边界框
     ctx.strokeStyle = '#00ff00'
     ctx.lineWidth = 2 * Math.min(scaleX, scaleY)
     ctx.strokeRect(x * scaleX, y * scaleY, w * scaleX, h * scaleY)
@@ -778,13 +865,49 @@ const drawAnnotations = (data) => {
         ctx.fill()
       })
     }
+    
+    // 绘制速度矢量
+    if (person.velocity) {
+      const cx = (x + w / 2) * scaleX
+      const cy = (y + h / 2) * scaleY
+      const vx = person.velocity.vx * 50  // 放大显示
+      const vy = person.velocity.vy * 50
+      
+      ctx.beginPath()
+      ctx.strokeStyle = '#ffff00'
+      ctx.lineWidth = 3 * Math.min(scaleX, scaleY)
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx + vx, cy + vy)
+      ctx.stroke()
+      
+      // 绘制箭头
+      const angle = Math.atan2(vy, vx)
+      const arrowSize = 10 * Math.min(scaleX, scaleY)
+      ctx.beginPath()
+      ctx.fillStyle = '#ffff00'
+      ctx.moveTo(cx + vx, cy + vy)
+      ctx.lineTo(
+        cx + vx - arrowSize * Math.cos(angle - Math.PI / 6),
+        cy + vy - arrowSize * Math.sin(angle - Math.PI / 6)
+      )
+      ctx.lineTo(
+        cx + vx - arrowSize * Math.cos(angle + Math.PI / 6),
+        cy + vy - arrowSize * Math.sin(angle + Math.PI / 6)
+      )
+      ctx.closePath()
+      ctx.fill()
+    }
 
     // 绘制文字
     ctx.fillStyle = '#00ff00'
     ctx.font = `${14 * Math.min(scaleX, scaleY)}px Arial`
-    ctx.fillText(`距离：${person.distance}m`, x * scaleX, y * scaleY - 10)
+    ctx.fillText(`距离：${person.distance?.toFixed(2) || '?'}m`, x * scaleX, y * scaleY - 10)
     if (person.height > 0) {
-      ctx.fillText(`身高：${person.height}cm`, x * scaleX, y * scaleY - 30)
+      ctx.fillText(`身高：${person.height.toFixed(0)}cm`, x * scaleX, y * scaleY - 30)
+    }
+    if (person.velocity && person.velocity.speed > 0.1) {
+      ctx.fillStyle = '#ffff00'
+      ctx.fillText(`速度：${person.velocity.speed.toFixed(2)}m/s`, x * scaleX, y * scaleY - 50)
     }
   })
 
@@ -1466,10 +1589,33 @@ onUnmounted(() => {
   .controls {
     flex-direction: column;
   }
-  
+
   .controls .btn {
     width: 100%;
   }
+}
+
+/* 深度热力图样式 */
+.heatmap-container {
+  margin-top: 15px;
+  padding: 15px;
+  background: rgba(26, 26, 46, 0.8);
+  border-radius: 8px;
+  border: 1px solid #333355;
+}
+
+.heatmap-image {
+  width: 100%;
+  max-width: 640px;
+  border-radius: 4px;
+}
+
+.heatmap-info {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #aaa;
 }
 
 .btn {
@@ -1513,6 +1659,11 @@ onUnmounted(() => {
 
 .btn-secondary {
   background: linear-gradient(90deg, #6c757d, #5a6268);
+  color: white;
+}
+
+.btn-info {
+  background: linear-gradient(90deg, #17a2b8, #138496);
   color: white;
 }
 

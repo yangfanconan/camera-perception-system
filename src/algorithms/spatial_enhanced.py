@@ -905,28 +905,10 @@ class SpatialCalculatorEnhanced:
             image_height=image_height, image_width=image_width
         )
         
-        # 5. 深度估计融合（如果可用）
-        depth_distance = None
-        if self.depth_estimator is not None and image is not None:
-            try:
-                depth_result = self.depth_estimator.estimate_bbox_depth(image, bbox)
-                if depth_result is not None:
-                    # 使用边界框底部的深度作为距离估计
-                    depth_distance = depth_result['bottom']
-                    # 深度估计与几何方法融合
-                    if depth_distance > 0 and depth_distance < 15:  # 合理范围
-                        # 根据置信度加权融合
-                        # 深度估计在中远距离更准确，几何方法在近距离更准确
-                        if distance < 1.5:
-                            # 近距离：几何方法为主
-                            distance = distance * 0.7 + depth_distance * 0.3
-                            estimate_method += "+depth_near"
-                        else:
-                            # 中远距离：深度估计为主
-                            distance = distance * 0.3 + depth_distance * 0.7
-                            estimate_method += "+depth_far"
-            except Exception as e:
-                logger.debug(f"Depth estimation failed: {e}")
+        # 5. 深度估计融合（暂时禁用 - Depth Anything V2 输出相对深度，需要校准）
+        # TODO: 添加深度校准功能后启用
+        # Depth Anything V2 输出的是相对深度，不是绝对深度
+        # 需要通过已知距离的参考物体进行尺度校准才能使用
         # 调试日志
         bbox_area_ratio = (bbox[2] * bbox[3]) / (image_width * image_height)
         logger.info(f"Distance calc: body={body_distance:.2f}, head={head_distance:.2f}, "
