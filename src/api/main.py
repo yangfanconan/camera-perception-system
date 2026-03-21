@@ -1111,27 +1111,82 @@ async def websocket_data(websocket: WebSocket):
 
             # ==================== 集成新功能 ====================
             try:
-                # 1. 记录数据到分析模块
+                # 1. 手势识别
+                from algorithms.gesture_recognition import get_gesture_recognizer
+                gesture_recognizer = get_gesture_recognizer()
+                for hand in metrics["hands"]:
+                    try:
+                        gesture = gesture_recognizer.recognize(hand)
+                        hand["gesture"] = gesture
+                    except:
+                        pass
+                
+                # 2. 跟踪器更新
+                from algorithms.person_tracker import get_person_tracker
+                tracker = get_person_tracker()
+                try:
+                    tracked_persons = tracker.update(metrics["persons"])
+                    for i, person in enumerate(metrics["persons"]):
+                        if i < len(tracked_persons):
+                            person["track_id"] = tracked_persons[i].get("track_id", person.get("track_id"))
+                            person["track_age"] = tracked_persons[i].get("age", 0)
+                except:
+                    pass
+                
+                # 3. 跌倒检测
+                from algorithms.fall_detection import get_fall_detector
+                fall_detector = get_fall_detector()
+                for person in metrics["persons"]:
+                    try:
+                        fall_result = fall_detector.detect(person)
+                        person["fall_risk"] = fall_result.get("fall_risk", 0)
+                        person["is_falling"] = fall_result.get("is_falling", False)
+                        if fall_result.get("is_falling"):
+                            from algorithms.alert_system import get_alert_system
+                            alert_system = get_alert_system()
+                            alert_system.create_alert(
+                                alert_type="fall",
+                                severity="critical",
+                                message="检测到跌倒！",
+                                track_id=person.get("track_id")
+                            )
+                    except:
+                        pass
+                
+                # 4. 报警系统检查
+                from algorithms.alert_system import get_alert_system
+                alert_system = get_alert_system()
+                for person in metrics["persons"]:
+                    try:
+                        bbox = person.get("bbox", [0, 0, 0, 0])
+                        cx = bbox[0] + bbox[2] / 2 if len(bbox) >= 4 else 0
+                        cy = bbox[1] + bbox[3] / 2 if len(bbox) >= 4 else 0
+                        alert_system.check_zones({"x": cx, "y": cy}, person.get("track_id"))
+                    except:
+                        pass
+                
+                # 5. 记录数据到分析模块
                 from algorithms.data_analysis import get_data_analyzer
                 analyzer = get_data_analyzer()
                 analyzer.record_metric('person_count', len(result.persons))
                 analyzer.record_metric('hand_count', len(result.hands))
                 analyzer.record_metric('fps', 1000 / max(total_time, 1))
                 analyzer.record_metric('detection_time', detect_time)
-                
-                # 2. 场景分析
+
+                # 6. 场景分析
                 from algorithms.scene_analysis import get_scene_analyzer
                 scene_analyzer = get_scene_analyzer()
                 scene_analyzer.analyze(frame, metrics["persons"])
-                
-                # 3. 录制视频
+
+                # 7. 录制视频
                 from algorithms.video_recording import get_video_recorder
                 recorder = get_video_recorder()
                 if recorder.is_recording:
                     recorder.write_frame(frame)
-                    
+
             except Exception as e:
-                logger.debug(f"Integration error: {e}")
+                logger.warning(f"Integration error: {e}")
+
 
             # 帧率控制（数据推送频率可降低）
             await asyncio.sleep(DATA_PUSH_INTERVAL)  # 使用配置的数据推送间隔
