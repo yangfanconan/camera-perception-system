@@ -33,6 +33,15 @@
           🚨 报警管理
           <span v-if="unreadAlerts > 0" class="badge">{{ unreadAlerts }}</span>
         </button>
+        <button :class="['tab', { active: currentTab === 'cameras' }]" @click="currentTab = 'cameras'; fetchCameras()">
+          📹 多摄像头
+        </button>
+        <button :class="['tab', { active: currentTab === 'recording' }]" @click="currentTab = 'recording'">
+          🎬 录制回放
+        </button>
+        <button :class="['tab', { active: currentTab === 'analytics' }]" @click="currentTab = 'analytics'; fetchAnalytics()">
+          📈 数据分析
+        </button>
         <button :class="['tab', { active: currentTab === 'calibration' }]" @click="currentTab = 'calibration'">
           🔧 相机标定
         </button>
@@ -709,6 +718,136 @@
           </div>
         </div>
       </div>
+
+      <!-- 多摄像头页面 -->
+      <div v-if="currentTab === 'cameras'" class="cameras-page">
+        <div class="cameras-header">
+          <h2>📹 多摄像头管理</h2>
+          <button class="btn btn-primary" @click="addCameraDialog = true">+ 添加摄像头</button>
+        </div>
+        
+        <div class="cameras-grid">
+          <div v-for="camera in cameras" :key="camera.camera_id" 
+               :class="['camera-card', { active: camera.camera_id === activeCameraId }]">
+            <div class="camera-preview">
+              <div class="preview-placeholder">
+                <span class="camera-icon">📷</span>
+              </div>
+            </div>
+            <div class="camera-info">
+              <h4>{{ camera.name }}</h4>
+              <div class="camera-status">
+                <span :class="['status-dot', camera.is_opened ? 'online' : 'offline']"></span>
+                <span>{{ camera.is_opened ? '已连接' : '未连接' }}</span>
+              </div>
+              <div class="camera-meta">
+                <span>FPS: {{ camera.fps }}</span>
+                <span>帧数: {{ camera.frame_count }}</span>
+              </div>
+            </div>
+            <div class="camera-actions">
+              <button class="btn-small" @click="activateCamera(camera.camera_id)">激活</button>
+              <button class="btn-small" @click="openCamera(camera.camera_id)">打开</button>
+              <button class="btn-small danger" @click="closeCamera(camera.camera_id)">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 录制回放页面 -->
+      <div v-if="currentTab === 'recording'" class="recording-page">
+        <div class="recording-header">
+          <h2>🎬 视频录制与回放</h2>
+        </div>
+        
+        <div class="recording-controls">
+          <button v-if="!isRecording" class="btn btn-primary" @click="startRecording">🔴 开始录制</button>
+          <button v-else class="btn btn-danger" @click="stopRecording">⏹ 停止录制</button>
+          <span v-if="isRecording" class="recording-indicator">
+            <span class="rec-dot"></span> 录制中...
+          </span>
+        </div>
+        
+        <div class="recordings-list">
+          <h3>录制列表</h3>
+          <div v-if="recordings.length === 0" class="no-data">暂无录制记录</div>
+          <div v-for="rec in recordings" :key="rec.session_id" class="recording-item">
+            <div class="rec-info">
+              <span class="rec-name">{{ rec.file_path?.split('/').pop() }}</span>
+              <span class="rec-duration">{{ rec.duration?.toFixed(1) }}s</span>
+              <span class="rec-frames">{{ rec.frame_count }} 帧</span>
+            </div>
+            <div class="rec-actions">
+              <button class="btn-small" @click="playRecording(rec)">▶ 播放</button>
+              <button class="btn-small" @click="downloadRecording(rec)">⬇ 下载</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 数据分析页面 -->
+      <div v-if="currentTab === 'analytics'" class="analytics-page">
+        <div class="analytics-header">
+          <h2>📈 数据分析与报告</h2>
+          <button class="btn btn-primary" @click="generateReport">生成报告</button>
+        </div>
+        
+        <div class="analytics-grid">
+          <!-- 统计卡片 -->
+          <div class="analytics-card">
+            <h3>📊 关键指标</h3>
+            <div class="metrics-list">
+              <div v-for="(stat, name) in analyticsStats" :key="name" class="metric-row">
+                <span class="metric-name">{{ name }}</span>
+                <span class="metric-value">{{ stat.value?.toFixed(2) }}</span>
+                <span class="metric-unit">{{ stat.unit }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 趋势图 -->
+          <div class="analytics-card wide">
+            <h3>📉 趋势分析</h3>
+            <div class="trend-selector">
+              <select v-model="selectedMetric" @change="fetchTrend(selectedMetric)">
+                <option value="person_count">人数</option>
+                <option value="fps">帧率</option>
+                <option value="detection_time">检测耗时</option>
+              </select>
+            </div>
+            <div class="trend-chart" v-if="trendData">
+              <div class="trend-info">
+                <span>趋势: <strong :class="trendData.trend">{{ trendData.trend }}</strong></span>
+                <span>R²: {{ trendData.r_squared?.toFixed(3) }}</span>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 异常检测 -->
+          <div class="analytics-card">
+            <h3>⚠️ 异常检测</h3>
+            <div class="anomalies-list">
+              <div v-for="anomaly in anomalies" :key="anomaly.timestamp" class="anomaly-item">
+                <span class="anomaly-time">{{ formatTime(anomaly.timestamp) }}</span>
+                <span class="anomaly-value">{{ anomaly.value?.toFixed(2) }}</span>
+              </div>
+              <div v-if="anomalies.length === 0" class="no-data">暂无异常</div>
+            </div>
+          </div>
+          
+          <!-- 报告预览 -->
+          <div class="analytics-card" v-if="latestReport">
+            <h3>📄 最新报告</h3>
+            <div class="report-preview">
+              <p><strong>{{ latestReport.title }}</strong></p>
+              <p class="report-summary">{{ latestReport.summary }}</p>
+              <div class="report-meta">
+                <span>生成时间: {{ formatTime(latestReport.generated_at) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -1102,6 +1241,119 @@ const formatTime = (timestamp) => {
   if (!timestamp) return ''
   const date = new Date(timestamp * 1000)
   return date.toLocaleString('zh-CN')
+}
+
+// ==================== 多摄像头管理 ====================
+const cameras = ref([])
+const activeCameraId = ref(null)
+const addCameraDialog = ref(false)
+
+const fetchCameras = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/cameras`)
+    if (res.data.status === 'success') {
+      cameras.value = res.data.cameras
+    }
+  } catch (error) {
+    console.error('获取摄像头列表失败:', error)
+  }
+}
+
+const activateCamera = async (cameraId) => {
+  try {
+    await axios.post(`${API_BASE}/api/cameras/${cameraId}/activate`)
+    activeCameraId.value = cameraId
+    await fetchCameras()
+  } catch (error) {
+    console.error('激活摄像头失败:', error)
+  }
+}
+
+const openCamera = async (cameraId) => {
+  // 打开摄像头逻辑
+  console.log('Opening camera:', cameraId)
+}
+
+const closeCamera = async (cameraId) => {
+  // 关闭摄像头逻辑
+  console.log('Closing camera:', cameraId)
+}
+
+// ==================== 录制功能 ====================
+const isRecording = ref(false)
+const recordings = ref([])
+
+const startRecording = async () => {
+  try {
+    const res = await axios.post(`${API_BASE}/api/recording/start`)
+    if (res.data.status === 'success') {
+      isRecording.value = true
+    }
+  } catch (error) {
+    console.error('开始录制失败:', error)
+  }
+}
+
+const stopRecording = async () => {
+  try {
+    const res = await axios.post(`${API_BASE}/api/recording/stop`)
+    if (res.data.status === 'success') {
+      isRecording.value = false
+      if (res.data.session) {
+        recordings.value.unshift(res.data.session)
+      }
+    }
+  } catch (error) {
+    console.error('停止录制失败:', error)
+  }
+}
+
+const playRecording = (rec) => {
+  console.log('Playing:', rec.file_path)
+}
+
+const downloadRecording = (rec) => {
+  window.open(rec.file_path, '_blank')
+}
+
+// ==================== 数据分析 ====================
+const analyticsStats = ref({})
+const trendData = ref(null)
+const selectedMetric = ref('person_count')
+const anomalies = ref([])
+const latestReport = ref(null)
+
+const fetchAnalytics = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/analytics/statistics`)
+    if (res.data.status === 'success') {
+      analyticsStats.value = res.data.statistics
+    }
+  } catch (error) {
+    console.error('获取分析数据失败:', error)
+  }
+}
+
+const fetchTrend = async (metricName) => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/analytics/trends/${metricName}`)
+    if (res.data.status === 'success') {
+      trendData.value = res.data.trend
+    }
+  } catch (error) {
+    console.error('获取趋势数据失败:', error)
+  }
+}
+
+const generateReport = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/analytics/report`)
+    if (res.data.status === 'success') {
+      latestReport.value = res.data.report
+    }
+  } catch (error) {
+    console.error('生成报告失败:', error)
+  }
 }
 
 // ==================== WebSocket 连接 ====================
@@ -2950,5 +3202,271 @@ input:checked + .slider:before {
 
 .btn-small:hover {
   opacity: 0.9;
+}
+
+/* ==================== 多摄像头页面样式 ==================== */
+.cameras-page {
+  padding: 20px;
+}
+
+.cameras-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.cameras-header h2 {
+  margin: 0;
+}
+
+.cameras-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.camera-card {
+  background: var(--bg-panel);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+}
+
+.camera-card.active {
+  border-color: var(--accent-color);
+}
+
+.camera-preview {
+  height: 150px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-placeholder {
+  text-align: center;
+}
+
+.camera-icon {
+  font-size: 48px;
+}
+
+.camera-info {
+  padding: 15px;
+}
+
+.camera-info h4 {
+  margin: 0 0 10px 0;
+}
+
+.camera-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.camera-meta {
+  display: flex;
+  gap: 15px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.camera-actions {
+  padding: 10px 15px;
+  display: flex;
+  gap: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* ==================== 录制页面样式 ==================== */
+.recording-page {
+  padding: 20px;
+}
+
+.recording-header {
+  margin-bottom: 20px;
+}
+
+.recording-header h2 {
+  margin: 0;
+}
+
+.recording-controls {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 30px;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff4444;
+}
+
+.rec-dot {
+  width: 12px;
+  height: 12px;
+  background: #ff4444;
+  border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.recordings-list h3 {
+  margin-bottom: 15px;
+}
+
+.recording-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px;
+  background: var(--bg-panel);
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.rec-info {
+  display: flex;
+  gap: 20px;
+}
+
+.rec-name {
+  font-weight: bold;
+}
+
+.rec-duration, .rec-frames {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.rec-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ==================== 数据分析页面样式 ==================== */
+.analytics-page {
+  padding: 20px;
+}
+
+.analytics-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.analytics-header h2 {
+  margin: 0;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.analytics-card {
+  background: var(--bg-panel);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.analytics-card.wide {
+  grid-column: span 2;
+}
+
+.analytics-card h3 {
+  margin: 0 0 15px 0;
+  font-size: 16px;
+  color: var(--accent-color);
+}
+
+.metrics-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.metric-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.metric-name {
+  color: var(--text-secondary);
+}
+
+.metric-value {
+  font-weight: bold;
+}
+
+.metric-unit {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.trend-selector select {
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+  margin-bottom: 15px;
+}
+
+.trend-info {
+  display: flex;
+  gap: 20px;
+}
+
+.trend-info .increasing { color: #00ff88; }
+.trend-info .decreasing { color: #ff4444; }
+.trend-info .stable { color: #ffaa00; }
+
+.anomalies-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.anomaly-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  background: rgba(255, 68, 68, 0.1);
+  border-radius: 6px;
+  margin-bottom: 5px;
+}
+
+.report-preview {
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+}
+
+.report-summary {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 10px 0;
+}
+
+.report-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>

@@ -1500,6 +1500,327 @@ async def get_system_info():
         return {"status": "error", "message": str(e)}
 
 
+# ==================== Round 201-300 新增 API ====================
+
+# 场景分析
+@app.get("/api/scene/analysis")
+async def get_scene_analysis():
+    """获取场景分析结果"""
+    try:
+        from algorithms.scene_analysis import get_scene_analyzer
+        analyzer = get_scene_analyzer()
+        stats = analyzer.get_statistics()
+        return {"status": "success", "statistics": stats}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/scene/changes")
+async def get_scene_changes():
+    """获取场景变化"""
+    try:
+        from algorithms.scene_analysis import get_scene_analyzer
+        analyzer = get_scene_analyzer()
+        changes = analyzer.get_scene_changes()
+        return {"status": "success", "changes": changes}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 多摄像头管理
+@app.get("/api/cameras")
+async def list_cameras():
+    """列出所有摄像头"""
+    try:
+        from algorithms.multi_camera import get_multi_camera_manager
+        manager = get_multi_camera_manager()
+        return {"status": "success", "cameras": [c.to_dict() for c in manager.get_all_info()]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/cameras/{camera_id}/activate")
+async def activate_camera(camera_id: int):
+    """激活摄像头"""
+    try:
+        from algorithms.multi_camera import get_multi_camera_manager
+        manager = get_multi_camera_manager()
+        if manager.set_active(camera_id):
+            return {"status": "success", "active_camera": camera_id}
+        return {"status": "error", "message": "Camera not found"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/cameras/stats")
+async def get_camera_stats():
+    """获取摄像头统计"""
+    try:
+        from algorithms.multi_camera import get_multi_camera_manager
+        manager = get_multi_camera_manager()
+        return {"status": "success", "stats": manager.get_stats()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 视频录制
+@app.post("/api/recording/start")
+async def start_recording():
+    """开始录制"""
+    try:
+        from algorithms.video_recording import get_video_recorder
+        recorder = get_video_recorder()
+        if recorder.start_recording():
+            return {"status": "success", "message": "Recording started"}
+        return {"status": "error", "message": "Failed to start recording"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/recording/stop")
+async def stop_recording():
+    """停止录制"""
+    try:
+        from algorithms.video_recording import get_video_recorder
+        recorder = get_video_recorder()
+        session = recorder.stop_recording()
+        if session:
+            return {"status": "success", "session": session.to_dict()}
+        return {"status": "error", "message": "No active recording"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/recording/status")
+async def get_recording_status():
+    """获取录制状态"""
+    try:
+        from algorithms.video_recording import get_video_recorder
+        recorder = get_video_recorder()
+        return {"status": "success", "recording": recorder.get_status()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 用户认证
+class LoginRequest(BaseModel):
+    """登录请求"""
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+async def login(request: LoginRequest):
+    """用户登录"""
+    try:
+        from algorithms.auth_system import get_auth_system
+        auth = get_auth_system()
+        result = auth.login(request.username, request.password)
+        if result:
+            return {"status": "success", "data": result}
+        return {"status": "error", "message": "Invalid credentials"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/auth/logout")
+async def logout(request: Request):
+    """用户登出"""
+    try:
+        from algorithms.auth_system import get_auth_system
+        auth = get_auth_system()
+        session_id = request.headers.get("X-Session-ID", "")
+        auth.logout(session_id)
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/users")
+async def list_users():
+    """列出用户"""
+    try:
+        from algorithms.auth_system import get_auth_system
+        auth = get_auth_system()
+        users = auth.user_manager.get_all_users()
+        return {"status": "success", "users": [u.to_dict() for u in users]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 数据分析
+@app.get("/api/analytics/statistics")
+async def get_analytics_statistics():
+    """获取统计数据"""
+    try:
+        from algorithms.data_analysis import get_data_analyzer
+        analyzer = get_data_analyzer()
+        return {"status": "success", "statistics": analyzer.get_statistics()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/analytics/trends/{metric_name}")
+async def get_metric_trend(metric_name: str):
+    """获取指标趋势"""
+    try:
+        from algorithms.data_analysis import get_data_analyzer
+        analyzer = get_data_analyzer()
+        trend = analyzer.get_trend(metric_name)
+        return {"status": "success", "trend": trend}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/analytics/report")
+async def generate_report():
+    """生成报告"""
+    try:
+        from algorithms.data_analysis import get_data_analyzer
+        analyzer = get_data_analyzer()
+        report = analyzer.generate_report()
+        return {"status": "success", "report": report.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 模型管理
+@app.get("/api/models")
+async def list_models():
+    """列出模型"""
+    try:
+        from algorithms.model_optimization import get_model_manager
+        manager = get_model_manager()
+        return {"status": "success", "models": manager.list_models()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/models/backends")
+async def list_backends():
+    """列出可用后端"""
+    try:
+        from algorithms.model_optimization import get_model_manager
+        manager = get_model_manager()
+        return {"status": "success", "backends": manager.accelerator.get_available_backends()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 边缘计算
+@app.get("/api/edge/device")
+async def get_device_info():
+    """获取设备信息"""
+    try:
+        from algorithms.edge_computing import get_edge_manager
+        manager = get_edge_manager()
+        return {"status": "success", "device": manager.get_device_info()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/edge/resources")
+async def get_edge_resources():
+    """获取边缘资源"""
+    try:
+        from algorithms.edge_computing import get_edge_manager
+        manager = get_edge_manager()
+        return {"status": "success", "resources": manager.get_resource_usage()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/edge/config")
+async def get_edge_config():
+    """获取边缘配置"""
+    try:
+        from algorithms.edge_computing import get_edge_manager
+        manager = get_edge_manager()
+        return {"status": "success", "config": manager.get_optimized_config()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 协作功能
+@app.get("/api/collaboration/users")
+async def get_collaboration_users():
+    """获取协作用户"""
+    try:
+        from algorithms.collaboration import get_collaboration_manager
+        manager = get_collaboration_manager()
+        return {"status": "success", "users": manager.get_users()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/collaboration/annotations")
+async def get_collaboration_annotations(frame_id: int = None):
+    """获取协作注释"""
+    try:
+        from algorithms.collaboration import get_collaboration_manager
+        manager = get_collaboration_manager()
+        return {"status": "success", "annotations": manager.get_annotations(frame_id)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/collaboration/session")
+async def get_collaboration_session():
+    """获取协作会话"""
+    try:
+        from algorithms.collaboration import get_collaboration_manager
+        manager = get_collaboration_manager()
+        return {"status": "success", "session": manager.get_session_info()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 系统集成
+@app.get("/api/integrations")
+async def list_integrations():
+    """列出集成"""
+    try:
+        from algorithms.integration import get_integration_manager
+        manager = get_integration_manager()
+        return {"status": "success", "integrations": manager.get_integrations()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/integrations/stats")
+async def get_integration_stats():
+    """获取集成统计"""
+    try:
+        from algorithms.integration import get_integration_manager
+        manager = get_integration_manager()
+        return {"status": "success", "stats": manager.get_stats()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+# 部署管理
+@app.get("/api/deployment/status")
+async def get_deployment_status():
+    """获取部署状态"""
+    try:
+        from algorithms.deployment import get_deployment_manager
+        manager = get_deployment_manager()
+        return {"status": "success", "deployment": manager.get_status()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/deployment/health")
+async def get_deployment_health():
+    """获取健康状态"""
+    try:
+        from algorithms.deployment import get_deployment_manager
+        manager = get_deployment_manager()
+        return {"status": "success", "health": manager.health_checker.get_status()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== 主程序 ====================
 
 def main():
