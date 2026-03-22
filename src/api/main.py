@@ -894,11 +894,10 @@ async def get_depth_heatmap():
         depth_min = float(np.min(depth_map))
         depth_max = float(np.max(depth_map))
         
-        # 归一化并反转
+        # 归一化（近=红色，远=蓝色）
         depth_normalized = ((depth_map - depth_min) / (depth_max - depth_min + 1e-6) * 255).astype(np.uint8)
-        depth_inverted = 255 - depth_normalized  # 反转：近=低值(蓝)，远=高值(红)
         
-        heatmap = cv2.applyColorMap(depth_inverted, cv2.COLORMAP_JET)
+        heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
 
         # 编码为 base64
         _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])

@@ -94,9 +94,9 @@
           <div v-if="showDepthHeatmap && depthHeatmap" class="heatmap-container">
             <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" />
             <div class="heatmap-legend">
-              <span class="legend-item"><span class="legend-color near"></span> 近</span>
+              <span class="legend-item"><span class="legend-color near"></span> 近（红）</span>
               <span class="legend-item"><span class="legend-color mid"></span> 中</span>
-              <span class="legend-item"><span class="legend-color far"></span> 远</span>
+              <span class="legend-item"><span class="legend-color far"></span> 远（蓝）</span>
             </div>
             <div class="heatmap-info">
               <div class="depth-stat">
@@ -2392,7 +2392,7 @@ onUnmounted(() => {
   border-radius: 2px;
 }
 
-.legend-color.near {
+.legend-color.far {
   background: linear-gradient(90deg, #0000ff, #00ffff);
 }
 
@@ -2400,7 +2400,7 @@ onUnmounted(() => {
   background: linear-gradient(90deg, #00ff00, #ffff00);
 }
 
-.legend-color.far {
+.legend-color.near {
   background: linear-gradient(90deg, #ff8000, #ff0000);
 }
 
