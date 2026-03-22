@@ -347,9 +347,8 @@ class DepthEstimator:
         """
         self.calibration_points.append((relative_depth, real_distance))
         
-        # 如果有足够的点，计算校准参数
-        if len(self.calibration_points) >= 2:
-            self._compute_calibration()
+        # 单点标定：一个点即可计算校准参数
+        self._compute_calibration()
         
         return {
             "points_count": len(self.calibration_points),
@@ -362,48 +361,33 @@ class DepthEstimator:
         """
         计算校准参数
         
-        科学方法：
-        - 用户标定画面中"最近的点"和"最远的点"
-        - 这两个点定义了整个画面的深度映射
-        - 使用线性映射: real_distance = scale * raw_depth + offset
-        - 不限制范围，允许合理的外推
+        单点标定方法：
+        - 用户框选一个区域，输入真实距离
+        - 假设深度估计器的相对比例是正确的
+        - scale = 真实距离 / 相对深度
+        - offset = 0
+        - 其他点的距离 = 相对深度 × scale
         """
-        if len(self.calibration_points) < 2:
+        if len(self.calibration_points) < 1:
             return
         
-        points = np.array(self.calibration_points)
-        relative = points[:, 0]  # 原始深度值
-        real = points[:, 1]      # 真实距离（米）
-
-        # 找到最近点和最远点（按真实距离）
-        near_idx = np.argmin(real)
-        far_idx = np.argmax(real)
+        # 使用最新的标定点
+        raw_depth, real_distance = self.calibration_points[-1]
         
-        near_raw = relative[near_idx]
-        far_raw = relative[far_idx]
-        near_real = real[near_idx]
-        far_real = real[far_idx]
-        
-        # 计算线性映射参数
-        # real = scale * raw + offset
-        raw_range = far_raw - near_raw
-        real_range = far_real - near_real
-        
-        if abs(raw_range) > 1e-6:
-            self.scale_factor = real_range / raw_range
-            self.offset = near_real - self.scale_factor * near_raw
+        if abs(raw_depth) > 1e-6:
+            self.scale_factor = real_distance / raw_depth
+            self.offset = 0.0
         else:
-            logger.warning("Calibration points have same depth, using default scale")
+            logger.warning("Calibration point has zero depth")
             self.scale_factor = 1.0
             self.offset = 0.0
 
         # 记录校准信息
-        self.near_point = {"raw": float(near_raw), "real": float(near_real)}
-        self.far_point = {"raw": float(far_raw), "real": float(far_real)}
+        self.calibration_point = {"raw": float(raw_depth), "real": float(real_distance)}
 
         self.calibrated = True
-        logger.info(f"Depth calibration: near={near_real}m (raw={near_raw:.2f}), far={far_real}m (raw={far_raw:.2f})")
-        logger.info(f"Mapping: real = {self.scale_factor:.4f} * raw + {self.offset:.4f}")
+        logger.info(f"Depth calibration: {real_distance}m at raw_depth={raw_depth:.2f}")
+        logger.info(f"Mapping: real = {self.scale_factor:.4f} * raw (offset=0)")
 
 
     def apply_calibration(self, depth_map: np.ndarray) -> np.ndarray:
@@ -427,8 +411,7 @@ class DepthEstimator:
         self.calibration_points = []
         self.scale_factor = 1.0
         self.offset = 0.0
-        self.near_point = None
-        self.far_point = None
+        self.calibration_point = None
         logger.info("Depth calibration cleared")
 
     def get_calibration_info(self) -> Dict[str, Any]:
@@ -439,8 +422,7 @@ class DepthEstimator:
             "points": self.calibration_points.copy(),
             "scale_factor": self.scale_factor,
             "offset": self.offset,
-            "near_point": self.near_point,
-            "far_point": self.far_point
+            "calibration_point": self.calibration_point
         }
 
     def get_stats(self) -> Dict[str, Any]:

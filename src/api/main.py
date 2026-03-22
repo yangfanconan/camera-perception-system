@@ -946,10 +946,7 @@ async def get_depth_heatmap():
             calibrated = True
             
             # 返回校准点信息
-            calibration_info = {
-                "near_point": state.depth_estimator.near_point,
-                "far_point": state.depth_estimator.far_point
-            }
+            calibration_info = state.depth_estimator.calibration_point
         else:
             # 未标定时，不显示假距离
             nearest_real = None
