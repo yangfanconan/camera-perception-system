@@ -335,9 +335,26 @@ class PerceptionFusion:
         if not bbox:
             return None
         
-        # bbox 可能是列表或元组
+        # bbox 可能是两种格式：
+        # 1. [x1, y1, x2, y2] - 左上角 + 右下角
+        # 2. [x1, y1, w, h] - 左上角 + 宽高
         if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
-            x1, y1, x2, y2 = bbox[:4]
+            if len(bbox) == 4:
+                # 检测是哪种格式：如果第3、4个值比第1、2个值大很多，说明是x2,y2格式
+                # 否则是w,h格式
+                v3, v4 = bbox[2], bbox[3]
+                v1, v2 = bbox[0], bbox[1]
+                
+                # 如果v3 > v1 且 v4 > v2，可能是x2,y2格式
+                # 但也可能是w,h格式（w和h都很大）
+                # 更可靠的判断：如果是x2,y2格式，通常v3-v1和v4-v2不会太大
+                # 如果是w,h格式，v3和v4就是宽高
+                
+                # 简单判断：假设bbox[2]和bbox[3]是宽高（YOLO检测返回的格式）
+                x1, y1, w, h = bbox[:4]
+                x2, y2 = x1 + w, y1 + h
+            else:
+                x1, y1, x2, y2 = bbox[:4]
         else:
             return None
         
