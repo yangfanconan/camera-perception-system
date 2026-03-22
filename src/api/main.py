@@ -888,21 +888,29 @@ async def get_depth_heatmap():
         if depth_map is None:
             return {"status": "error", "message": "Depth estimation failed"}
 
-        # 转换为热力图
+        # Depth Anything V2 输出的值越大表示越近（类似视差）
+        # 需要反转：值大 = 远，值小 = 近
+        # 这样 JET colormap: 蓝色(低值)=近，红色(高值)=远
         depth_min = float(np.min(depth_map))
         depth_max = float(np.max(depth_map))
+        
+        # 归一化并反转
         depth_normalized = ((depth_map - depth_min) / (depth_max - depth_min + 1e-6) * 255).astype(np.uint8)
-        heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+        depth_inverted = 255 - depth_normalized  # 反转：近=低值(蓝)，远=高值(红)
+        
+        heatmap = cv2.applyColorMap(depth_inverted, cv2.COLORMAP_JET)
 
         # 编码为 base64
         _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])
         heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
 
+        # 注意：depth_map 中值大=近，值小=远
+        # 所以：depth_max 对应最近距离，depth_min 对应最远距离
         return {
             "status": "success",
             "heatmap": heatmap_base64,
-            "depth_min": float(np.min(depth_map)),
-            "depth_max": float(np.max(depth_map)),
+            "nearest_distance": float(depth_max),  # 值最大 = 最近
+            "farthest_distance": float(depth_min),  # 值最小 = 最远
             "depth_mean": float(np.mean(depth_map)),
         }
     except Exception as e:

@@ -93,18 +93,23 @@
           <!-- 深度热力图显示 -->
           <div v-if="showDepthHeatmap && depthHeatmap" class="heatmap-container">
             <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" />
+            <div class="heatmap-legend">
+              <span class="legend-item"><span class="legend-color near"></span> 近</span>
+              <span class="legend-item"><span class="legend-color mid"></span> 中</span>
+              <span class="legend-item"><span class="legend-color far"></span> 远</span>
+            </div>
             <div class="heatmap-info">
               <div class="depth-stat">
                 <span class="depth-label">📍 最近距离</span>
-                <span class="depth-value near">{{ depthInfo.min?.toFixed(2) }} m</span>
+                <span class="depth-value near">{{ depthInfo.nearest?.toFixed(2) }} m</span>
               </div>
               <div class="depth-stat">
                 <span class="depth-label">📍 最远距离</span>
-                <span class="depth-value far">{{ depthInfo.max?.toFixed(2) }} m</span>
+                <span class="depth-value far">{{ depthInfo.farthest?.toFixed(2) }} m</span>
               </div>
               <div class="depth-stat">
-                <span class="depth-label">📊 平均深度</span>
-                <span class="depth-value avg">{{ depthInfo.mean?.toFixed(2) }} m</span>
+                <span class="depth-label">📊 平均值</span>
+                <span class="depth-value avg">{{ depthInfo.mean?.toFixed(2) }}</span>
               </div>
             </div>
           </div>
@@ -908,8 +913,8 @@ const detectionData = reactive({
 const showDepthHeatmap = ref(false)
 const depthHeatmap = ref(null)
 const depthInfo = reactive({
-  min: 0,
-  max: 0,
+  nearest: 0,
+  farthest: 0,
   mean: 0
 })
 let heatmapInterval = null
@@ -1114,8 +1119,8 @@ const fetchDepthHeatmap = async () => {
     const response = await axios.get(`${API_BASE}/api/depth/heatmap`)
     if (response.data.status === 'success') {
       depthHeatmap.value = response.data.heatmap
-      depthInfo.min = response.data.depth_min
-      depthInfo.max = response.data.depth_max
+      depthInfo.nearest = response.data.nearest_distance
+      depthInfo.farthest = response.data.farthest_distance
       depthInfo.mean = response.data.depth_mean
     }
   } catch (error) {
@@ -2360,6 +2365,43 @@ onUnmounted(() => {
 
 .depth-value.avg {
   color: #4ecdc4;
+}
+
+/* 热力图图例 */
+.heatmap-legend {
+  display: flex;
+  justify-content: center;
+  gap: 30px;
+  margin-top: 10px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #888;
+}
+
+.legend-color {
+  width: 20px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-color.near {
+  background: linear-gradient(90deg, #0000ff, #00ffff);
+}
+
+.legend-color.mid {
+  background: linear-gradient(90deg, #00ff00, #ffff00);
+}
+
+.legend-color.far {
+  background: linear-gradient(90deg, #ff8000, #ff0000);
 }
 
 .btn {
