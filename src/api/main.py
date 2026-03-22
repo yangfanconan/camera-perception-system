@@ -924,6 +924,61 @@ class DepthCalibrationPoint(BaseModel):
     real_distance: float  # 单位：米
 
 
+class DepthCalibrationRegion(BaseModel):
+    """区域深度校准"""
+    x: int
+    y: int
+    width: int
+    height: int
+    real_distance: float  # 单位：米
+
+
+@app.post("/api/depth/calibrate_region")
+async def calibrate_depth_region(data: DepthCalibrationRegion):
+    """通过框选区域进行深度校准"""
+    if state.depth_estimator is None:
+        return {"status": "error", "message": "Depth estimator not initialized"}
+    
+    if not state.camera or not state.camera.is_opened():
+        return {"status": "error", "message": "Camera not opened"}
+    
+    try:
+        # 读取当前帧
+        ret, frame = state.camera.read()
+        if not ret or frame is None:
+            return {"status": "error", "message": "Failed to read frame"}
+        
+        # 估计深度
+        depth_map = state.depth_estimator.estimate(frame)
+        if depth_map is None:
+            return {"status": "error", "message": "Depth estimation failed"}
+        
+        # 获取框选区域的平均深度
+        h, w = depth_map.shape
+        x1 = max(0, min(data.x, w - 1))
+        y1 = max(0, min(data.y, h - 1))
+        x2 = max(0, min(data.x + data.width, w))
+        y2 = max(0, min(data.y + data.height, h))
+        
+        if x2 <= x1 or y2 <= y1:
+            return {"status": "error", "message": "Invalid region"}
+        
+        region = depth_map[y1:y2, x1:x2]
+        avg_depth = float(np.mean(region))
+        
+        # 添加校准点
+        result = state.depth_estimator.add_calibration_point(avg_depth, data.real_distance)
+        
+        return {
+            "status": "success",
+            "region_avg_depth": avg_depth,
+            "calibration": result
+        }
+    except Exception as e:
+        logger.error(f"Region calibration error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 @app.post("/api/depth/calibrate")
 async def add_depth_calibration(data: DepthCalibrationPoint):
     """添加深度校准点"""

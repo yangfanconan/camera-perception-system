@@ -60,7 +60,29 @@
         <!-- 左侧：视频显示区 -->
         <div class="video-section">
           <div class="video-container" ref="videoContainer">
-            <canvas ref="videoCanvas" :width="canvasWidth" :height="canvasHeight"></canvas>
+            <canvas ref="videoCanvas" :width="canvasWidth" :height="canvasHeight"
+              @mousedown="onCanvasMouseDown"
+              @mousemove="onCanvasMouseMove"
+              @mouseup="onCanvasMouseUp"
+              :style="{ cursor: isCalibrating ? 'crosshair' : 'default' }"
+            ></canvas>
+            
+            <!-- 框选矩形显示 -->
+            <div v-if="selectionRect.show" class="selection-rect"
+              :style="{
+                left: selectionRect.x + 'px',
+                top: selectionRect.y + 'px',
+                width: selectionRect.width + 'px',
+                height: selectionRect.height + 'px'
+              }">
+            </div>
+            
+            <!-- 标定点标记 -->
+            <div v-for="(point, idx) in calibrationMarkers" :key="idx" class="calibration-marker"
+              :style="{ left: point.x + 'px', top: point.y + 'px', width: point.w + 'px', height: point.h + 'px' }">
+              <span class="marker-label">{{ point.distance }}m</span>
+            </div>
+            
             <div class="video-overlay">
               <div v-if="!systemStatus.camera_opened" class="no-signal">
                 <div class="no-signal-icon">📷</div>
@@ -78,8 +100,12 @@
             <button class="btn btn-danger" @click="stopCamera" :disabled="!systemStatus.camera_opened">
               ⏹ 停止摄像头
             </button>
-            <button class="btn btn-success" @click="loadCalibration" :disabled="!systemStatus.camera_opened">
-              📐 加载标定
+            <button 
+              :class="['btn', isCalibrating ? 'btn-warning' : 'btn-success']" 
+              @click="toggleCalibrationMode"
+              :disabled="!systemStatus.camera_opened"
+            >
+              {{ isCalibrating ? '✕ 取消标定' : '📐 深度标定' }}
             </button>
             <button class="btn btn-warning" @click="exportData" :disabled="detectionData.persons.length === 0">
               📊 导出数据
@@ -116,7 +142,7 @@
               </div>
             </div>
             
-            <!-- 深度标定 -->
+            <!-- 深度标定状态 -->
             <div class="depth-calibration">
               <div class="calibration-header">
                 <h4>📐 深度标定</h4>
@@ -125,14 +151,8 @@
                 </span>
               </div>
               
-              <div class="calibration-form">
-                <div class="form-row">
-                  <label>相对深度: {{ depthInfo.mean?.toFixed(2) }}</label>
-                  <input type="number" v-model.number="calibrationRealDistance" placeholder="真实距离(米)" step="0.1" />
-                  <button class="btn btn-sm btn-primary" @click="addDepthCalibrationPoint">添加</button>
-                </div>
-              </div>
-              
+              <p class="calibration-hint">点击"深度标定"按钮，然后在画面中框选区域，输入真实距离进行标定。</p>
+
               <div v-if="depthCalibration.points?.length > 0" class="calibration-points">
                 <div class="points-header">校准点 ({{ depthCalibration.points.length }}/2+):</div>
                 <div v-for="(point, idx) in depthCalibration.points" :key="idx" class="point-item">
@@ -141,7 +161,7 @@
                   <span>真实: {{ point[1]?.toFixed(2) }}m</span>
                 </div>
               </div>
-              
+
               <div v-if="depthCalibration.calibrated" class="calibration-result">
                 <span>缩放因子: {{ depthCalibration.scale_factor?.toFixed(4) }}</span>
                 <span>偏移: {{ depthCalibration.offset?.toFixed(4) }}</span>
@@ -1002,26 +1022,107 @@ const depthCalibration = reactive({
 })
 const calibrationRealDistance = ref(null)
 
-// 添加深度标定点
-const addDepthCalibrationPoint = async () => {
-  if (!calibrationRealDistance.value) {
-    alert('请输入真实距离')
+// 框选标定
+const isCalibrating = ref(false)
+const selectionRect = reactive({
+  show: false,
+  x: 0,
+  y: 0,
+  width: 0,
+  height: 0,
+  startX: 0,
+  startY: 0
+})
+const calibrationMarkers = ref([])  // 标定点标记
+
+// 切换标定模式
+const toggleCalibrationMode = () => {
+  isCalibrating.value = !isCalibrating.value
+  if (!isCalibrating.value) {
+    selectionRect.show = false
+  }
+}
+
+// 鼠标按下
+const onCanvasMouseDown = (e) => {
+  if (!isCalibrating.value) return
+  
+  const rect = e.target.getBoundingClientRect()
+  selectionRect.startX = e.clientX - rect.left
+  selectionRect.startY = e.clientY - rect.top
+  selectionRect.x = selectionRect.startX
+  selectionRect.y = selectionRect.startY
+  selectionRect.width = 0
+  selectionRect.height = 0
+  selectionRect.show = true
+}
+
+// 鼠标移动
+const onCanvasMouseMove = (e) => {
+  if (!isCalibrating.value || !selectionRect.show) return
+  
+  const rect = e.target.getBoundingClientRect()
+  const currentX = e.clientX - rect.left
+  const currentY = e.clientY - rect.top
+  
+  selectionRect.width = Math.abs(currentX - selectionRect.startX)
+  selectionRect.height = Math.abs(currentY - selectionRect.startY)
+  selectionRect.x = Math.min(currentX, selectionRect.startX)
+  selectionRect.y = Math.min(currentY, selectionRect.startY)
+}
+
+// 鼠标释放
+const onCanvasMouseUp = async (e) => {
+  if (!isCalibrating.value || !selectionRect.show) return
+  
+  // 如果框选区域太小，忽略
+  if (selectionRect.width < 20 || selectionRect.height < 20) {
+    selectionRect.show = false
+    return
+  }
+  
+  // 弹出输入框让用户输入真实距离
+  const distance = prompt('请输入该区域距离摄像头的真实距离（米）：')
+  if (distance === null) {
+    selectionRect.show = false
+    return
+  }
+  
+  const realDistance = parseFloat(distance)
+  if (isNaN(realDistance) || realDistance <= 0) {
+    alert('请输入有效的距离值')
+    selectionRect.show = false
     return
   }
   
   try {
-    const res = await axios.post(`${API_BASE}/api/depth/calibrate`, {
-      relative_depth: depthInfo.mean,
-      real_distance: calibrationRealDistance.value
+    // 发送框选区域到后端获取平均深度
+    const res = await axios.post(`${API_BASE}/api/depth/calibrate_region`, {
+      x: Math.round(selectionRect.x),
+      y: Math.round(selectionRect.y),
+      width: Math.round(selectionRect.width),
+      height: Math.round(selectionRect.height),
+      real_distance: realDistance
     })
     
     if (res.data.status === 'success') {
       Object.assign(depthCalibration, res.data.calibration)
-      calibrationRealDistance.value = null
+      
+      // 添加标记
+      calibrationMarkers.value.push({
+        x: selectionRect.x,
+        y: selectionRect.y,
+        w: selectionRect.width,
+        h: selectionRect.height,
+        distance: realDistance
+      })
     }
   } catch (error) {
-    console.error('添加标定点失败:', error)
+    console.error('标定失败:', error)
+    alert('标定失败，请重试')
   }
+  
+  selectionRect.show = false
 }
 
 // 清除深度标定
@@ -1032,6 +1133,7 @@ const clearDepthCalibration = async () => {
     depthCalibration.points = []
     depthCalibration.scale_factor = 1.0
     depthCalibration.offset = 0.0
+    calibrationMarkers.value = []
   } catch (error) {
     console.error('清除标定失败:', error)
   }
@@ -2428,6 +2530,36 @@ onUnmounted(() => {
   object-fit: contain;
 }
 
+/* 框选矩形 */
+.selection-rect {
+  position: absolute;
+  border: 2px solid #00ff88;
+  background: rgba(0, 255, 136, 0.2);
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* 标定点标记 */
+.calibration-marker {
+  position: absolute;
+  border: 2px dashed #ffcc00;
+  background: rgba(255, 204, 0, 0.1);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.marker-label {
+  position: absolute;
+  top: -20px;
+  left: 0;
+  background: #ffcc00;
+  color: #000;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 3px;
+}
+
 .video-overlay {
   position: absolute;
   top: 0;
@@ -2544,6 +2676,13 @@ onUnmounted(() => {
 }
 
 .calibration-header h4 {
+
+.calibration-hint {
+  font-size: 12px;
+  color: #888;
+  margin: 10px 0;
+  line-height: 1.5;
+}
   margin: 0;
   font-size: 14px;
   color: #fff;
