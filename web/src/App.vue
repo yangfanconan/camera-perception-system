@@ -159,7 +159,7 @@
                 </span>
               </div>
               
-              <p class="calibration-hint">点击"深度标定"按钮，然后在画面中框选区域，输入真实距离进行标定。</p>
+              <p class="calibration-hint">点击"深度标定"按钮，框选一个区域并输入真实距离即可完成标定。</p>
 
               <div v-if="depthCalibration.points?.length > 0" class="calibration-points">
                 <div class="points-header">校准点 ({{ depthCalibration.points.length }}/2+):</div>
