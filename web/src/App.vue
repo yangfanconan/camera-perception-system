@@ -94,8 +94,18 @@
           <div v-if="showDepthHeatmap && depthHeatmap" class="heatmap-container">
             <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" />
             <div class="heatmap-info">
-              <span>深度范围: {{ depthInfo.min?.toFixed(2) }}m - {{ depthInfo.max?.toFixed(2) }}m</span>
-              <span>平均深度: {{ depthInfo.mean?.toFixed(2) }}m</span>
+              <div class="depth-stat">
+                <span class="depth-label">📍 最近距离</span>
+                <span class="depth-value near">{{ depthInfo.min?.toFixed(2) }} m</span>
+              </div>
+              <div class="depth-stat">
+                <span class="depth-label">📍 最远距离</span>
+                <span class="depth-value far">{{ depthInfo.max?.toFixed(2) }} m</span>
+              </div>
+              <div class="depth-stat">
+                <span class="depth-label">📊 平均深度</span>
+                <span class="depth-value avg">{{ depthInfo.mean?.toFixed(2) }} m</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2315,10 +2325,41 @@ onUnmounted(() => {
 
 .heatmap-info {
   display: flex;
-  justify-content: space-between;
-  margin-top: 10px;
+  justify-content: space-around;
+  gap: 20px;
+  margin-top: 15px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+}
+
+.depth-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.depth-label {
   font-size: 12px;
-  color: #aaa;
+  color: #888;
+}
+
+.depth-value {
+  font-size: 24px;
+  font-weight: bold;
+}
+
+.depth-value.near {
+  color: #00ff88;
+}
+
+.depth-value.far {
+  color: #ff6b6b;
+}
+
+.depth-value.avg {
+  color: #4ecdc4;
 }
 
 .btn {
