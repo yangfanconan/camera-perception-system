@@ -874,30 +874,30 @@ async def get_depth_heatmap():
     """获取深度热力图"""
     if not state.camera or not state.camera.is_opened():
         return {"status": "error", "message": "Camera not opened"}
-    
+
     try:
-        frame = state.camera.read()
-        if frame is None:
+        ret, frame = state.camera.read()
+        if not ret or frame is None:
             return {"status": "error", "message": "Failed to read frame"}
-        
+
         if state.depth_estimator is None:
             return {"status": "error", "message": "Depth estimator not initialized"}
-        
+
         # 估计深度
         depth_map = state.depth_estimator.estimate(frame)
         if depth_map is None:
             return {"status": "error", "message": "Depth estimation failed"}
-        
+
         # 转换为热力图
         depth_min = float(np.min(depth_map))
         depth_max = float(np.max(depth_map))
         depth_normalized = ((depth_map - depth_min) / (depth_max - depth_min + 1e-6) * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
-        
+
         # 编码为 base64
         _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])
         heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
-        
+
         return {
             "status": "success",
             "heatmap": heatmap_base64,
