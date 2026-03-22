@@ -1094,16 +1094,16 @@ const onHeatmapMouseMove = (e) => {
   // 边界检查
   if (smallX >= 0 && smallX < depthShape.value.width && smallY >= 0 && smallY < depthShape.value.height) {
     const idx = smallY * depthShape.value.width + smallX
-    let rawDepth = depthDataArray.value[idx]
+    let rawDisparity = depthDataArray.value[idx]
     
-    // 应用校准
-    if (depthInfo.calibrated) {
-      // 直接应用线性映射，不限制范围
-      let realDepth = rawDepth * depthScaleFactor.value + depthOffset.value
-      realDepth = Math.max(0, realDepth)  // 距离不能为负
+    // 应用校准（使用倒数关系：distance = scale / disparity）
+    if (depthInfo.calibrated && rawDisparity > 0.001) {
+      // disparity越大 = 越近 = 距离越小
+      let realDepth = depthScaleFactor.value / rawDisparity
+      realDepth = Math.max(0.1, realDepth)  // 最小距离0.1m
       heatmapCursorDepth.value = realDepth
     } else {
-      heatmapCursorDepth.value = rawDepth
+      heatmapCursorDepth.value = rawDisparity
     }
     
     // 更新tooltip位置

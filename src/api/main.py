@@ -923,25 +923,28 @@ async def get_depth_heatmap():
             depth_data_base64 = None
             depth_shape = None
 
-        # 计算真实距离（使用原始深度值）
-        logger.info(f"Raw depth range: min={raw_min:.2f}, max={raw_max:.2f}, mean={raw_mean:.2f}")
-        logger.info(f"Calibration: scale={state.depth_estimator.scale_factor:.4f}, offset={state.depth_estimator.offset:.4f}")
+        # 计算真实距离（使用原始视差值）
+        logger.info(f"Raw disparity range: min={raw_min:.2f}, max={raw_max:.2f}, mean={raw_mean:.2f}")
+        logger.info(f"Calibration: scale={state.depth_estimator.scale_factor:.4f}")
         
         if state.depth_estimator.calibrated and depth_raw is not None:
-            # 应用线性映射：real = scale * raw + offset
-            # 不限制范围，允许合理的外推
-            nearest_real = raw_min * state.depth_estimator.scale_factor + state.depth_estimator.offset
-            farthest_real = raw_max * state.depth_estimator.scale_factor + state.depth_estimator.offset
-            mean_real = raw_mean * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            # 使用倒数关系：distance = scale / disparity
+            # disparity越大 = 越近 = 距离越小
+            if hasattr(state.depth_estimator, 'use_inverse_mapping') and state.depth_estimator.use_inverse_mapping:
+                # 避免除以零
+                nearest_real = state.depth_estimator.scale_factor / max(raw_max, 1e-6)  # 最大视差 = 最近
+                farthest_real = state.depth_estimator.scale_factor / max(raw_min, 1e-6)  # 最小视差 = 最远
+                mean_real = state.depth_estimator.scale_factor / max(raw_mean, 1e-6)
+            else:
+                # 旧方法（线性映射）
+                nearest_real = raw_min * state.depth_estimator.scale_factor + state.depth_estimator.offset
+                farthest_real = raw_max * state.depth_estimator.scale_factor + state.depth_estimator.offset
+                mean_real = raw_mean * state.depth_estimator.scale_factor + state.depth_estimator.offset
 
-            # 确保 nearest < farthest（近的距离小，远的距离大）
-            if nearest_real > farthest_real:
-                nearest_real, farthest_real = farthest_real, nearest_real
-
-            # 限制最小距离为 0
-            nearest_real = max(0, nearest_real)
+            # 限制合理范围
+            nearest_real = max(0.1, nearest_real)
             farthest_real = max(nearest_real, farthest_real)
-            mean_real = max(0, mean_real)
+            mean_real = max(0.1, min(mean_real, farthest_real))
 
             calibrated = True
             

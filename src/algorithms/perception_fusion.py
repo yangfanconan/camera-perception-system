@@ -347,21 +347,46 @@ class PerceptionFusion:
         if x2 <= x1 or y2 <= y1:
             return None
         
-        # 获取区域深度
+        # 获取区域深度 - 使用更智能的方法
         region = depth_map[y1:y2, x1:x2]
         if region.size == 0:
             return None
         
-        depth_values = region.flatten()
+        # 方法1: 使用中心区域（排除边缘背景）
+        h_region, w_region = region.shape
+        margin_y = int(h_region * 0.2)  # 上下各排除20%
+        margin_x = int(w_region * 0.2)  # 左右各排除20%
+        
+        if h_region > margin_y * 2 and w_region > margin_x * 2:
+            center_region = region[margin_y:h_region-margin_y, margin_x:w_region-margin_x]
+        else:
+            center_region = region
+        
+        # 方法2: 使用中位数（更鲁棒）
+        depth_values = center_region.flatten()
+        depth_median = float(np.median(depth_values))
         depth_mean = float(np.mean(depth_values))
         depth_std = float(np.std(depth_values))
         
+        # 使用中位数作为主要深度值（更鲁棒，不受背景影响）
+        depth_value = depth_median
+        
+        # 调试信息
+        logger.info(f"Object {label}: bbox=({x1},{y1},{x2},{y2}), disparity_median={depth_median:.2f}, mean={depth_mean:.2f}")
+        
         # 计算真实距离
         if self.depth_estimator and self.depth_estimator.calibrated:
-            distance = depth_mean * self.depth_estimator.scale_factor + self.depth_estimator.offset
+            # 使用倒数关系：distance = scale / disparity
+            if hasattr(self.depth_estimator, 'use_inverse_mapping') and self.depth_estimator.use_inverse_mapping:
+                if depth_value > 1e-6:
+                    distance = self.depth_estimator.scale_factor / depth_value
+                else:
+                    distance = self.depth_estimator.max_depth
+            else:
+                distance = depth_value * self.depth_estimator.scale_factor + self.depth_estimator.offset
             distance = max(0, distance)
         else:
-            distance = depth_mean
+            distance = depth_value
         
         # 计算3D位置
         center_x = (x1 + x2) / 2

@@ -77,7 +77,8 @@ class DepthEstimator:
 
         # 深度校准参数
         self.calibrated = False
-        self.calibration_points = []  # [(relative_depth, real_distance), ...]
+        self.calibration_points = []  # [(disparity, real_distance), ...]
+        self.use_inverse_mapping = True  # 使用倒数关系：distance = scale / disparity
         self.scale_factor = 1.0  # 缩放因子
         self.offset = 0.0  # 偏移量
     
@@ -236,25 +237,34 @@ class DepthEstimator:
         
         Returns:
             深度图，值越大表示越远
+        
+        Note:
+            Depth Anything V2 输出的是相对深度/视差(disparity)
+            值越大 = 物体越近
+            需要反转才能得到真正的深度（值越大 = 越远）
         """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         with torch.no_grad():
-            depth = self.model.infer_image(image_rgb)
+            disparity = self.model.infer_image(image_rgb)  # 值越大 = 越近
         
         if normalize:
-            # 归一化到米（用于显示）
-            depth_min, depth_max = depth.min(), depth.max()
-            if depth_max - depth_min > 0:
-                depth_norm = (depth - depth_min) / (depth_max - depth_min)
+            # 反转：disparity越大 → 深度越小
+            # 所以用 (max - disparity) 来反转
+            disp_min, disp_max = disparity.min(), disparity.max()
+            if disp_max - disp_min > 0:
+                # 反转并归一化：近处值小，远处值大
+                depth_norm = (disp_max - disparity) / (disp_max - disp_min)
             else:
-                depth_norm = np.zeros_like(depth)
+                depth_norm = np.ones_like(disparity) * 0.5
             
+            # 映射到米：0.1m 到 max_depth
             depth_metric = 0.1 + depth_norm * (self.max_depth - 0.1)
             return depth_metric.astype(np.float32)
         else:
-            # 返回原始深度值（用于校准）
-            return depth.astype(np.float32)
+            # 返回原始视差值（用于校准）
+            # 注意：这是视差，值越大 = 越近
+            return disparity.astype(np.float32)
     
     def _estimate_midas(self, image: np.ndarray, normalize: bool = True) -> Optional[np.ndarray]:
         """使用 MiDaS 估计深度
@@ -361,49 +371,58 @@ class DepthEstimator:
         """
         计算校准参数
         
-        单点标定方法：
+        单点标定方法（基于视差）：
         - 用户框选一个区域，输入真实距离
-        - 假设深度估计器的相对比例是正确的
-        - scale = 真实距离 / 相对深度
-        - offset = 0
-        - 其他点的距离 = 相对深度 × scale
+        - 原始值是视差(disparity)，值越大 = 越近
+        - 使用倒数关系：distance = scale / disparity
+        - scale = real_distance * disparity
         """
         if len(self.calibration_points) < 1:
             return
         
         # 使用最新的标定点
-        raw_depth, real_distance = self.calibration_points[-1]
+        disparity, real_distance = self.calibration_points[-1]
         
-        if abs(raw_depth) > 1e-6:
-            self.scale_factor = real_distance / raw_depth
+        # 视差转距离：distance = scale / disparity
+        # 所以 scale = distance * disparity
+        if disparity > 1e-6:
+            self.scale_factor = real_distance * disparity
             self.offset = 0.0
+            self.use_inverse_mapping = True
         else:
-            logger.warning("Calibration point has zero depth")
+            logger.warning("Calibration point has near-zero disparity")
             self.scale_factor = 1.0
             self.offset = 0.0
+            self.use_inverse_mapping = False
 
         # 记录校准信息
-        self.calibration_point = {"raw": float(raw_depth), "real": float(real_distance)}
+        self.calibration_point = {"disparity": float(disparity), "real": float(real_distance)}
 
         self.calibrated = True
-        logger.info(f"Depth calibration: {real_distance}m at raw_depth={raw_depth:.2f}")
-        logger.info(f"Mapping: real = {self.scale_factor:.4f} * raw (offset=0)")
+        logger.info(f"Depth calibration: {real_distance}m at disparity={disparity:.2f}")
+        logger.info(f"Mapping: distance = {self.scale_factor:.4f} / disparity")
 
 
-    def apply_calibration(self, depth_map: np.ndarray) -> np.ndarray:
+    def apply_calibration(self, disparity_map: np.ndarray) -> np.ndarray:
         """
-        应用校准，将相对深度转换为真实距离
+        应用校准，将视差转换为真实距离
         
         Args:
-            depth_map: 相对深度图
+            disparity_map: 视差图（值越大 = 越近）
         
         Returns:
             真实距离图（米）
         """
         if not self.calibrated:
-            return depth_map
+            return disparity_map
         
-        return depth_map * self.scale_factor + self.offset
+        if self.use_inverse_mapping:
+            # distance = scale / disparity
+            # 避免除以零
+            disparity_safe = np.maximum(disparity_map, 1e-6)
+            return self.scale_factor / disparity_safe
+        else:
+            return disparity_map * self.scale_factor + self.offset
 
     def clear_calibration(self):
         """清除校准"""
@@ -412,6 +431,7 @@ class DepthEstimator:
         self.scale_factor = 1.0
         self.offset = 0.0
         self.calibration_point = None
+        self.use_inverse_mapping = True
         logger.info("Depth calibration cleared")
 
     def get_calibration_info(self) -> Dict[str, Any]:
