@@ -1307,6 +1307,36 @@ async def get_tracks():
 
 
 # 报警 API
+class AlertCreate(BaseModel):
+    """报警创建请求"""
+    alert_type: str
+    severity: str
+    message: str
+    track_id: Optional[int] = None
+
+
+@app.post("/api/alerts/create")
+async def create_alert(data: AlertCreate):
+    """创建报警事件"""
+    try:
+        from algorithms.alert_system import get_alert_system
+        system = get_alert_system()
+
+        alert = system.create_alert(
+            alert_type=data.alert_type,
+            severity=data.severity,
+            message=data.message,
+            track_id=data.track_id
+        )
+
+        return {
+            "status": "success",
+            "alert": alert.to_dict() if alert else None
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 @app.get("/api/alerts")
 async def get_alerts(since: float = None, alert_type: str = None):
     """获取报警事件"""

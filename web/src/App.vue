@@ -18,6 +18,9 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="sound-toggle" @click="toggleSound" :title="soundEnabled ? '关闭报警声音' : '开启报警声音'">
+          {{ soundEnabled ? '🔔' : '🔕' }}
+        </button>
         <button class="theme-toggle" @click="toggleTheme" :title="isDarkTheme ? '切换到浅色模式' : '切换到深色模式'">
           {{ isDarkTheme ? '☀️' : '🌙' }}
         </button>
@@ -896,6 +899,44 @@ const initTheme = () => {
   document.documentElement.setAttribute('data-theme', isDarkTheme.value ? 'dark' : 'light')
 }
 
+// 报警声音
+const soundEnabled = ref(true)
+const lastAlertCount = ref(0)
+
+// 播放报警声音
+const playAlertSound = () => {
+  if (!soundEnabled.value) return
+  
+  // 使用 Web Audio API 生成报警声音
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+  const oscillator = audioContext.createOscillator()
+  const gainNode = audioContext.createGain()
+  
+  oscillator.connect(gainNode)
+  gainNode.connect(audioContext.destination)
+  
+  oscillator.frequency.value = 800
+  oscillator.type = 'sine'
+  gainNode.gain.value = 0.3
+  
+  oscillator.start()
+  
+  // 闪烁效果
+  setTimeout(() => { oscillator.frequency.value = 600 }, 100)
+  setTimeout(() => { oscillator.frequency.value = 800 }, 200)
+  setTimeout(() => { oscillator.frequency.value = 600 }, 300)
+  setTimeout(() => { 
+    oscillator.stop()
+    audioContext.close()
+  }, 400)
+}
+
+// 切换声音
+const toggleSound = () => {
+  soundEnabled.value = !soundEnabled.value
+  localStorage.setItem('soundEnabled', soundEnabled.value)
+}
+
 // 系统状态
 const systemStatus = reactive({
   camera_opened: false,
@@ -1164,15 +1205,23 @@ const fetchAlerts = async () => {
   try {
     const res = await axios.get(`${API_BASE}/api/alerts`)
     if (res.data.status === 'success') {
-      alerts.value = res.data.alerts
+      const newAlerts = res.data.alerts
       
+      // 检测新报警（数量增加）
+      if (newAlerts.length > lastAlertCount.value && lastAlertCount.value > 0) {
+        playAlertSound()
+      }
+      lastAlertCount.value = newAlerts.length
+      
+      alerts.value = newAlerts
+
       // 计算统计
       alertStats.critical = alerts.value.filter(a => a.severity === 'critical').length
       alertStats.high = alerts.value.filter(a => a.severity === 'high').length
       alertStats.medium = alerts.value.filter(a => a.severity === 'medium').length
       alertStats.low = alerts.value.filter(a => a.severity === 'low').length
     }
-    
+
     // 获取报警区域
     const zonesRes = await axios.get(`${API_BASE}/api/zones`)
     if (zonesRes.data.status === 'success') {
@@ -2160,6 +2209,27 @@ onUnmounted(() => {
 }
 
 .theme-toggle:hover {
+  border-color: var(--accent-color);
+  transform: scale(1.1);
+}
+
+.sound-toggle {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+}
+
+.sound-toggle:hover {
   border-color: var(--accent-color);
   transform: scale(1.1);
 }

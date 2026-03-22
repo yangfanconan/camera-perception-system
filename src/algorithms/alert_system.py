@@ -413,6 +413,22 @@ class AlertSystem:
         
         return alert
     
+    def create_alert(
+        self,
+        alert_type: str,
+        severity: str,
+        message: str,
+        track_id: int = None
+    ) -> 'Alert':
+        """创建报警（公共方法）"""
+        return self._create_alert(
+            alert_type=alert_type,
+            severity=severity,
+            message=message,
+            track_id=track_id or 0,
+            position=(0.0, 0.0)
+        )
+
     def add_callback(self, callback: Callable):
         """添加报警回调"""
         self.callbacks.append(callback)
