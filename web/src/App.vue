@@ -115,6 +115,39 @@
                 <span class="depth-value avg">{{ depthInfo.mean?.toFixed(2) }}</span>
               </div>
             </div>
+            
+            <!-- 深度标定 -->
+            <div class="depth-calibration">
+              <div class="calibration-header">
+                <h4>📐 深度标定</h4>
+                <span :class="['calibration-status', depthCalibration.calibrated ? 'calibrated' : '']">
+                  {{ depthCalibration.calibrated ? '✓ 已标定' : '未标定' }}
+                </span>
+              </div>
+              
+              <div class="calibration-form">
+                <div class="form-row">
+                  <label>相对深度: {{ depthInfo.mean?.toFixed(2) }}</label>
+                  <input type="number" v-model.number="calibrationRealDistance" placeholder="真实距离(米)" step="0.1" />
+                  <button class="btn btn-sm btn-primary" @click="addDepthCalibrationPoint">添加</button>
+                </div>
+              </div>
+              
+              <div v-if="depthCalibration.points?.length > 0" class="calibration-points">
+                <div class="points-header">校准点 ({{ depthCalibration.points.length }}/2+):</div>
+                <div v-for="(point, idx) in depthCalibration.points" :key="idx" class="point-item">
+                  <span>相对: {{ point[0]?.toFixed(2) }}</span>
+                  <span>→</span>
+                  <span>真实: {{ point[1]?.toFixed(2) }}m</span>
+                </div>
+              </div>
+              
+              <div v-if="depthCalibration.calibrated" class="calibration-result">
+                <span>缩放因子: {{ depthCalibration.scale_factor?.toFixed(4) }}</span>
+                <span>偏移: {{ depthCalibration.offset?.toFixed(4) }}</span>
+                <button class="btn btn-sm btn-secondary" @click="clearDepthCalibration">清除标定</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -960,6 +993,62 @@ const depthInfo = reactive({
 })
 let heatmapInterval = null
 
+// 深度标定
+const depthCalibration = reactive({
+  calibrated: false,
+  points: [],
+  scale_factor: 1.0,
+  offset: 0.0
+})
+const calibrationRealDistance = ref(null)
+
+// 添加深度标定点
+const addDepthCalibrationPoint = async () => {
+  if (!calibrationRealDistance.value) {
+    alert('请输入真实距离')
+    return
+  }
+  
+  try {
+    const res = await axios.post(`${API_BASE}/api/depth/calibrate`, {
+      relative_depth: depthInfo.mean,
+      real_distance: calibrationRealDistance.value
+    })
+    
+    if (res.data.status === 'success') {
+      Object.assign(depthCalibration, res.data.calibration)
+      calibrationRealDistance.value = null
+    }
+  } catch (error) {
+    console.error('添加标定点失败:', error)
+  }
+}
+
+// 清除深度标定
+const clearDepthCalibration = async () => {
+  try {
+    await axios.delete(`${API_BASE}/api/depth/calibration`)
+    depthCalibration.calibrated = false
+    depthCalibration.points = []
+    depthCalibration.scale_factor = 1.0
+    depthCalibration.offset = 0.0
+  } catch (error) {
+    console.error('清除标定失败:', error)
+  }
+}
+
+// 获取深度标定状态
+const fetchDepthCalibration = async () => {
+  try {
+    const res = await axios.get(`${API_BASE}/api/depth/calibration`)
+    if (res.data.status === 'success') {
+      Object.assign(depthCalibration, res.data.calibration)
+    }
+  } catch (error) {
+    console.error('获取标定状态失败:', error)
+  }
+}
+
 // ==================== 仪表盘数据 ====================
 const dashboardData = reactive({
   persons_detected: 0,
@@ -1140,10 +1229,11 @@ const loadCalibration = async () => {
 // 深度热力图切换
 const toggleDepthHeatmap = async () => {
   showDepthHeatmap.value = !showDepthHeatmap.value
-  
+
   if (showDepthHeatmap.value) {
     // 开始获取热力图
     fetchDepthHeatmap()
+    fetchDepthCalibration()  // 获取标定状态
     heatmapInterval = setInterval(fetchDepthHeatmap, 500)  // 每 500ms 更新一次
   } else {
     // 停止获取热力图
@@ -2435,6 +2525,121 @@ onUnmounted(() => {
 
 .depth-value.avg {
   color: #4ecdc4;
+}
+
+/* 深度标定 */
+.depth-calibration {
+  margin-top: 15px;
+  padding: 15px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  border: 1px solid #333355;
+}
+
+.calibration-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.calibration-header h4 {
+  margin: 0;
+  font-size: 14px;
+  color: #fff;
+}
+
+.calibration-status {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: #444;
+  color: #888;
+}
+
+.calibration-status.calibrated {
+  background: #2d5a27;
+  color: #7fff7f;
+}
+
+.calibration-form {
+  margin-bottom: 10px;
+}
+
+.calibration-form .form-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.calibration-form label {
+  font-size: 12px;
+  color: #888;
+}
+
+.calibration-form input {
+  width: 120px;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #222;
+  color: #fff;
+  font-size: 14px;
+}
+
+.calibration-form input:focus {
+  outline: none;
+  border-color: #4ecdc4;
+}
+
+.calibration-points {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 6px;
+}
+
+.points-header {
+  font-size: 12px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.point-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.calibration-result {
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(45, 90, 39, 0.3);
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 15px;
+  align-items: center;
+  font-size: 12px;
+  color: #7fff7f;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn-primary {
+  background: #4ecdc4;
+  color: #000;
+}
+
+.btn-secondary {
+  background: #555;
+  color: #fff;
 }
 
 /* 热力图图例 */
