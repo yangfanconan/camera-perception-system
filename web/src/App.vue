@@ -117,6 +117,48 @@
             >
               🌡️ {{ showDepthHeatmap ? '关闭热力图' : '深度热力图' }}
             </button>
+            <button 
+              @click="togglePerception" 
+              :class="['btn', showPerception ? 'btn-info' : 'btn-secondary']"
+              :disabled="!systemStatus.camera_opened">
+              🎯 {{ showPerception ? '关闭感知' : '综合感知' }}
+            </button>
+          </div>
+          
+          <!-- 综合感知显示 -->
+          <div v-if="showPerception && perceptionResult" class="perception-container">
+            <div class="perception-main">
+              <img v-if="perceptionVisualization" :src="'data:image/jpeg;base64,' + perceptionVisualization" alt="Perception" class="perception-image" />
+            </div>
+            <div class="perception-sidebar">
+              <div class="bird-view-container">
+                <h4>🦅 俯视图</h4>
+                <img v-if="birdEyeView" :src="'data:image/jpeg;base64,' + birdEyeView" alt="Bird Eye View" class="bird-view-image" />
+              </div>
+              <div class="objects-list">
+                <h4>📋 检测目标 ({{ perceptionResult.objects?.length || 0 }})</h4>
+                <div v-for="obj in perceptionResult.objects" :key="obj.track_id" class="object-card">
+                  <div class="object-header">
+                    <span class="object-id">#{{ obj.track_id }}</span>
+                    <span :class="['object-label', obj.label]">{{ obj.label }}</span>
+                  </div>
+                  <div class="object-details">
+                    <div class="detail-row">
+                      <span class="detail-label">距离:</span>
+                      <span class="detail-value">{{ obj.distance?.toFixed(2) }} m</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">3D位置:</span>
+                      <span class="detail-value">({{ obj.position_3d?.map(v => v.toFixed(1)).join(', ') }}) m</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">置信度:</span>
+                      <span class="detail-value">{{ (obj.confidence * 100).toFixed(0) }}%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           
           <!-- 深度热力图显示 -->
@@ -1406,6 +1448,43 @@ const toggleDepthHeatmap = async () => {
   }
 }
 
+// 综合感知
+const showPerception = ref(false)
+const perceptionResult = ref(null)
+const perceptionVisualization = ref(null)
+const birdEyeView = ref(null)
+let perceptionInterval = null
+
+const togglePerception = async () => {
+  showPerception.value = !showPerception.value
+  
+  if (showPerception.value) {
+    fetchPerception()
+    perceptionInterval = setInterval(fetchPerception, 200)  // 5fps
+  } else {
+    if (perceptionInterval) {
+      clearInterval(perceptionInterval)
+      perceptionInterval = null
+    }
+    perceptionResult.value = null
+    perceptionVisualization.value = null
+    birdEyeView.value = null
+  }
+}
+
+const fetchPerception = async () => {
+  try {
+    const response = await axios.get(`${API_BASE}/api/perception/visualize`)
+    if (response.data.status === 'success') {
+      perceptionVisualization.value = response.data.visualization
+      birdEyeView.value = response.data.bird_eye_view
+      perceptionResult.value = response.data.result
+    }
+  } catch (error) {
+    console.error('获取感知数据失败:', error)
+  }
+}
+
 const fetchDepthHeatmap = async () => {
   try {
     const response = await axios.get(`${API_BASE}/api/depth/heatmap`)
@@ -2684,6 +2763,121 @@ onUnmounted(() => {
 }
 
 /* 深度热力图样式 */
+/* 综合感知样式 */
+.perception-container {
+  margin-top: 15px;
+  display: flex;
+  gap: 15px;
+  background: rgba(26, 26, 46, 0.8);
+  border-radius: 8px;
+  padding: 15px;
+  border: 1px solid #333355;
+}
+
+.perception-main {
+  flex: 2;
+}
+
+.perception-image {
+  width: 100%;
+  border-radius: 4px;
+}
+
+.perception-sidebar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.bird-view-container {
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.bird-view-container h4 {
+  margin: 0 0 10px 0;
+  color: #00ff88;
+  font-size: 14px;
+}
+
+.bird-view-image {
+  width: 100%;
+  border-radius: 4px;
+}
+
+.objects-list {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  max-height: 400px;
+}
+
+.objects-list h4 {
+  margin: 0 0 10px 0;
+  color: #00ff88;
+  font-size: 14px;
+}
+
+.object-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 8px;
+  border-left: 3px solid #00ff88;
+}
+
+.object-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.object-id {
+  font-weight: bold;
+  color: #00ff88;
+}
+
+.object-label {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.object-label.person {
+  background: rgba(255, 165, 0, 0.3);
+  color: #ffa500;
+}
+
+.object-label.hand {
+  background: rgba(0, 191, 255, 0.3);
+  color: #00bfff;
+}
+
+.object-details {
+  font-size: 12px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.detail-label {
+  color: #888;
+}
+
+.detail-value {
+  color: #fff;
+  font-family: monospace;
+}
+
 .heatmap-container {
   margin-top: 15px;
   padding: 15px;

@@ -2090,6 +2090,82 @@ async def get_deployment_health():
         return {"status": "error", "message": str(e)}
 
 
+# ==================== 综合感知 API ====================
+from algorithms.perception_fusion import PerceptionFusion, visualize_perception
+
+# 全局感知融合器
+perception_fusion = None
+
+def get_perception_fusion():
+    """获取感知融合器"""
+    global perception_fusion
+    if perception_fusion is None:
+        perception_fusion = PerceptionFusion(
+            depth_estimator=state.depth_estimator,
+            detector=state.detector
+        )
+    return perception_fusion
+
+@app.get("/api/perception/process")
+async def api_perception_process():
+    """综合感知处理"""
+    if not state.camera or not state.camera.is_opened():
+        return {"status": "error", "message": "Camera not opened"}
+    
+    try:
+        ret, frame = state.camera.read()
+        if not ret or frame is None:
+            return {"status": "error", "message": "Failed to read frame"}
+        
+        fusion = get_perception_fusion()
+        result = fusion.process(frame)
+        
+        return {
+            "status": "success",
+            "result": result.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Perception process error: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.get("/api/perception/visualize")
+async def api_perception_visualize():
+    """获取可视化结果"""
+    if not state.camera or not state.camera.is_opened():
+        return {"status": "error", "message": "Camera not opened"}
+    
+    try:
+        ret, frame = state.camera.read()
+        if not ret or frame is None:
+            return {"status": "error", "message": "Failed to read frame"}
+        
+        fusion = get_perception_fusion()
+        result = fusion.process(frame)
+        
+        # 可视化
+        vis = visualize_perception(frame, result)
+        
+        # 俯视图
+        bird_view = fusion.get_bird_eye_view(result)
+        
+        # 编码
+        _, buffer = cv2.imencode('.jpg', vis, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        vis_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        _, buffer = cv2.imencode('.jpg', bird_view, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        bird_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        return {
+            "status": "success",
+            "visualization": vis_base64,
+            "bird_eye_view": bird_base64,
+            "result": result.to_dict()
+        }
+    except Exception as e:
+        logger.error(f"Perception visualize error: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # ==================== 主程序 ====================
 
 def main():
