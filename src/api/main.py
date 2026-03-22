@@ -917,6 +917,48 @@ async def get_depth_heatmap():
         return {"status": "error", "message": str(e)}
 
 
+# ==================== 深度校准 API ====================
+class DepthCalibrationPoint(BaseModel):
+    """深度校准点"""
+    relative_depth: float
+    real_distance: float  # 单位：米
+
+
+@app.post("/api/depth/calibrate")
+async def add_depth_calibration(data: DepthCalibrationPoint):
+    """添加深度校准点"""
+    if state.depth_estimator is None:
+        return {"status": "error", "message": "Depth estimator not initialized"}
+    
+    result = state.depth_estimator.add_calibration_point(
+        data.relative_depth, 
+        data.real_distance
+    )
+    return {"status": "success", "calibration": result}
+
+
+@app.get("/api/depth/calibration")
+async def get_depth_calibration():
+    """获取深度校准信息"""
+    if state.depth_estimator is None:
+        return {"status": "error", "message": "Depth estimator not initialized"}
+    
+    return {
+        "status": "success",
+        "calibration": state.depth_estimator.get_calibration_info()
+    }
+
+
+@app.delete("/api/depth/calibration")
+async def clear_depth_calibration():
+    """清除深度校准"""
+    if state.depth_estimator is None:
+        return {"status": "error", "message": "Depth estimator not initialized"}
+    
+    state.depth_estimator.clear_calibration()
+    return {"status": "success", "message": "Calibration cleared"}
+
+
 @app.get("/api/errors")
 async def get_errors():
     """获取错误统计"""

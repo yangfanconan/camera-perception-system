@@ -74,6 +74,12 @@ class DepthEstimator:
         }
         
         logger.info(f"Depth estimator initialized: backend={backend}, device={self.device}")
+
+        # 深度校准参数
+        self.calibrated = False
+        self.calibration_points = []  # [(relative_depth, real_distance), ...]
+        self.scale_factor = 1.0  # 缩放因子
+        self.offset = 0.0  # 偏移量
     
     def _load_model(self):
         """加载模型"""
@@ -302,6 +308,93 @@ class DepthEstimator:
         data = image[::16, ::16].tobytes()
         return hashlib.md5(data).hexdigest()
     
+
+    # ==================== 深度校准 ====================
+    def add_calibration_point(self, relative_depth: float, real_distance: float) -> Dict[str, Any]:
+        """
+        添加校准点
+        
+        Args:
+            relative_depth: 相对深度值（从深度图获取）
+            real_distance: 真实距离（米）
+        
+        Returns:
+            校准状态
+        """
+        self.calibration_points.append((relative_depth, real_distance))
+        
+        # 如果有足够的点，计算校准参数
+        if len(self.calibration_points) >= 2:
+            self._compute_calibration()
+        
+        return {
+            "points_count": len(self.calibration_points),
+            "calibrated": self.calibrated,
+            "scale_factor": self.scale_factor,
+            "offset": self.offset
+        }
+
+    def _compute_calibration(self):
+        """计算校准参数（线性回归）"""
+        if len(self.calibration_points) < 2:
+            return
+        
+        # 简单线性回归: real = scale * relative + offset
+        points = np.array(self.calibration_points)
+        relative = points[:, 0]
+        real = points[:, 1]
+        
+        # 最小二乘法
+        n = len(relative)
+        sum_x = np.sum(relative)
+        sum_y = np.sum(real)
+        sum_xy = np.sum(relative * real)
+        sum_xx = np.sum(relative * relative)
+        
+        denom = n * sum_xx - sum_x * sum_x
+        if abs(denom) > 1e-6:
+            self.scale_factor = (n * sum_xy - sum_x * sum_y) / denom
+            self.offset = (sum_y - self.scale_factor * sum_x) / n
+        else:
+            self.scale_factor = 1.0
+            self.offset = 0.0
+        
+        self.calibrated = True
+        logger.info(f"Depth calibration computed: scale={self.scale_factor:.4f}, offset={self.offset:.4f}")
+
+    def apply_calibration(self, depth_map: np.ndarray) -> np.ndarray:
+        """
+        应用校准，将相对深度转换为真实距离
+        
+        Args:
+            depth_map: 相对深度图
+        
+        Returns:
+            真实距离图（米）
+        """
+        if not self.calibrated:
+            return depth_map
+        
+        return depth_map * self.scale_factor + self.offset
+
+    def clear_calibration(self):
+        """清除校准"""
+        self.calibrated = False
+        self.calibration_points = []
+        self.scale_factor = 1.0
+        self.offset = 0.0
+        logger.info("Depth calibration cleared")
+
+    def get_calibration_info(self) -> Dict[str, Any]:
+        """获取校准信息"""
+        return {
+            "calibrated": self.calibrated,
+            "points_count": len(self.calibration_points),
+            "points": self.calibration_points.copy(),
+            "scale_factor": self.scale_factor,
+            "offset": self.offset
+        }
+
     def get_stats(self) -> Dict[str, Any]:
         """获取性能统计"""
         return self.stats.copy()
