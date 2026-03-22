@@ -130,15 +130,18 @@
             <div class="heatmap-info">
               <div class="depth-stat">
                 <span class="depth-label">📍 最近距离</span>
-                <span class="depth-value near">{{ depthInfo.nearest?.toFixed(2) }} m</span>
+                <span class="depth-value near" v-if="depthInfo.calibrated">{{ depthInfo.nearest?.toFixed(2) }} m</span>
+                <span class="depth-value" v-else style="color: #888;">未标定</span>
               </div>
               <div class="depth-stat">
                 <span class="depth-label">📍 最远距离</span>
-                <span class="depth-value far">{{ depthInfo.farthest?.toFixed(2) }} m</span>
+                <span class="depth-value far" v-if="depthInfo.calibrated">{{ depthInfo.farthest?.toFixed(2) }} m</span>
+                <span class="depth-value" v-else style="color: #888;">未标定</span>
               </div>
               <div class="depth-stat">
-                <span class="depth-label">📊 平均值</span>
-                <span class="depth-value avg">{{ depthInfo.mean?.toFixed(2) }}</span>
+                <span class="depth-label">📊 平均深度</span>
+                <span class="depth-value avg" v-if="depthInfo.calibrated">{{ depthInfo.mean?.toFixed(2) }} m</span>
+                <span class="depth-value" v-else style="color: #888;">{{ depthInfo.relativeMean?.toFixed(2) }}</span>
               </div>
             </div>
             
@@ -1007,9 +1010,11 @@ const detectionData = reactive({
 const showDepthHeatmap = ref(false)
 const depthHeatmap = ref(null)
 const depthInfo = reactive({
-  nearest: 0,
-  farthest: 0,
-  mean: 0
+  nearest: null,
+  farthest: null,
+  mean: null,
+  calibrated: false,
+  relativeMean: 0
 })
 let heatmapInterval = null
 
@@ -1355,6 +1360,8 @@ const fetchDepthHeatmap = async () => {
       depthInfo.nearest = response.data.nearest_distance
       depthInfo.farthest = response.data.farthest_distance
       depthInfo.mean = response.data.depth_mean
+      depthInfo.calibrated = response.data.calibrated
+      depthInfo.relativeMean = response.data.relative_depth?.mean || 0
     }
   } catch (error) {
     console.error('获取深度热力图失败:', error)

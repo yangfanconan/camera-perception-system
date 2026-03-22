@@ -177,7 +177,7 @@ class DepthEstimator:
             self.model = None
             self.backend = 'geometric'
     
-    def estimate(self, image: np.ndarray) -> Optional[np.ndarray]:
+    def estimate(self, image: np.ndarray, normalize: bool = True) -> Optional[np.ndarray]:
         """
         估计深度图
         
@@ -192,8 +192,8 @@ class DepthEstimator:
         
         start_time = time.time()
         
-        # 检查缓存
-        if self.cache_enabled and self.cache:
+        # 只缓存归一化的结果
+        if normalize and self.cache_enabled and self.cache:
             frame_hash = self._compute_hash(image)
             cached = self.cache.get(frame_hash)
             if cached is not None:
@@ -201,9 +201,9 @@ class DepthEstimator:
         
         try:
             if self.backend == 'depth_anything_v2':
-                depth = self._estimate_depth_anything_v2(image)
+                depth = self._estimate_depth_anything_v2(image, normalize)
             elif self.backend == 'midas':
-                depth = self._estimate_midas(image)
+                depth = self._estimate_midas(image, normalize)
             else:
                 # geometric backend - no depth map
                 return None
@@ -212,7 +212,7 @@ class DepthEstimator:
                 return None
             
             # 缓存
-            if self.cache_enabled and self.cache:
+            if normalize and self.cache_enabled and self.cache:
                 self.cache.put(frame_hash, depth)
             
             # 统计
@@ -227,25 +227,45 @@ class DepthEstimator:
             logger.error(f"Depth estimation failed: {e}")
             return None
     
-    def _estimate_depth_anything_v2(self, image: np.ndarray) -> Optional[np.ndarray]:
-        """使用 Depth Anything V2 估计深度"""
+    def _estimate_depth_anything_v2(self, image: np.ndarray, normalize: bool = True) -> Optional[np.ndarray]:
+        """使用 Depth Anything V2 估计深度
+        
+        Args:
+            image: BGR图像
+            normalize: 是否归一化到[0.1, max_depth]范围
+        
+        Returns:
+            深度图，值越大表示越远
+        """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         with torch.no_grad():
             depth = self.model.infer_image(image_rgb)
         
-        # 归一化到米
-        depth_min, depth_max = depth.min(), depth.max()
-        if depth_max - depth_min > 0:
-            depth_norm = (depth - depth_min) / (depth_max - depth_min)
+        if normalize:
+            # 归一化到米（用于显示）
+            depth_min, depth_max = depth.min(), depth.max()
+            if depth_max - depth_min > 0:
+                depth_norm = (depth - depth_min) / (depth_max - depth_min)
+            else:
+                depth_norm = np.zeros_like(depth)
+            
+            depth_metric = 0.1 + depth_norm * (self.max_depth - 0.1)
+            return depth_metric.astype(np.float32)
         else:
-            depth_norm = np.zeros_like(depth)
-        
-        depth_metric = 0.1 + depth_norm * (self.max_depth - 0.1)
-        return depth_metric.astype(np.float32)
+            # 返回原始深度值（用于校准）
+            return depth.astype(np.float32)
     
-    def _estimate_midas(self, image: np.ndarray) -> Optional[np.ndarray]:
-        """使用 MiDaS 估计深度"""
+    def _estimate_midas(self, image: np.ndarray, normalize: bool = True) -> Optional[np.ndarray]:
+        """使用 MiDaS 估计深度
+        
+        Args:
+            image: BGR图像
+            normalize: 是否归一化到[0.1, max_depth]范围
+        
+        Returns:
+            深度图，值越大表示越远
+        """
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         input_batch = self.transform(image_rgb).to(self.device)
         
@@ -260,15 +280,19 @@ class DepthEstimator:
         
         depth = prediction.cpu().numpy()
         
-        # 归一化
-        depth_min, depth_max = depth.min(), depth.max()
-        if depth_max - depth_min > 0:
-            depth_norm = (depth - depth_min) / (depth_max - depth_min)
+        if normalize:
+            # 归一化到米（用于显示）
+            depth_min, depth_max = depth.min(), depth.max()
+            if depth_max - depth_min > 0:
+                depth_norm = (depth - depth_min) / (depth_max - depth_min)
+            else:
+                depth_norm = np.zeros_like(depth)
+            
+            depth_metric = 0.1 + depth_norm * (self.max_depth - 0.1)
+            return depth_metric.astype(np.float32)
         else:
-            depth_norm = np.zeros_like(depth)
-        
-        depth_metric = 0.1 + depth_norm * (self.max_depth - 0.1)
-        return depth_metric.astype(np.float32)
+            # 返回原始深度值（用于校准）
+            return depth.astype(np.float32)
     
     def estimate_at_point(self, image: np.ndarray, x: int, y: int) -> Optional[float]:
         """估计指定点的深度"""

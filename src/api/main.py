@@ -883,34 +883,66 @@ async def get_depth_heatmap():
         if state.depth_estimator is None:
             return {"status": "error", "message": "Depth estimator not initialized"}
 
-        # 估计深度
-        depth_map = state.depth_estimator.estimate(frame)
+        # 估计深度（归一化用于显示）
+        depth_map = state.depth_estimator.estimate(frame, normalize=True)
         if depth_map is None:
             return {"status": "error", "message": "Depth estimation failed"}
 
-        # Depth Anything V2 输出的值越大表示越近（类似视差）
-        # 需要反转：值大 = 远，值小 = 近
-        # 这样 JET colormap: 蓝色(低值)=近，红色(高值)=远
+        # 同时获取原始深度值（用于校准计算）
+        depth_raw = state.depth_estimator.estimate(frame, normalize=False)
+        
+        # 归一化深度用于热力图
         depth_min = float(np.min(depth_map))
         depth_max = float(np.max(depth_map))
+        depth_mean = float(np.mean(depth_map))
         
-        # 归一化（近=红色，远=蓝色）
+        # 原始深度值
+        raw_min = float(np.min(depth_raw)) if depth_raw is not None else 0
+        raw_max = float(np.max(depth_raw)) if depth_raw is not None else 0
+        raw_mean = float(np.mean(depth_raw)) if depth_raw is not None else 0
+
+        # 归一化用于热力图（值小=近=红色，值大=远=蓝色）
         depth_normalized = ((depth_map - depth_min) / (depth_max - depth_min + 1e-6) * 255).astype(np.uint8)
-        
         heatmap = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
 
         # 编码为 base64
         _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])
         heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
 
-        # 注意：depth_map 中值大=近，值小=远
-        # 所以：depth_max 对应最近距离，depth_min 对应最远距离
+        # 计算真实距离（使用原始深度值）
+        logger.info(f"Raw depth range: min={raw_min:.2f}, max={raw_max:.2f}, mean={raw_mean:.2f}")
+        logger.info(f"Calibration: scale={state.depth_estimator.scale_factor:.4f}, offset={state.depth_estimator.offset:.4f}")
+        
+        if state.depth_estimator.calibrated and depth_raw is not None:
+            # 应用校准：real = scale * relative + offset
+            nearest_real = raw_min * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            farthest_real = raw_max * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            mean_real = raw_mean * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            
+            # 确保 nearest < farthest（近的距离小，远的距离大）
+            if nearest_real > farthest_real:
+                nearest_real, farthest_real = farthest_real, nearest_real
+            
+            # 限制最小距离为 0（不能为负数）
+            nearest_real = max(0, nearest_real)
+            farthest_real = max(nearest_real, farthest_real)
+            mean_real = max(0, mean_real)
+            
+            calibrated = True
+        else:
+            # 未标定时，不显示假距离
+            nearest_real = None
+            farthest_real = None
+            mean_real = None
+            calibrated = False
+
         return {
             "status": "success",
             "heatmap": heatmap_base64,
-            "nearest_distance": float(depth_max),  # 值最大 = 最近
-            "farthest_distance": float(depth_min),  # 值最小 = 最远
-            "depth_mean": float(np.mean(depth_map)),
+            "nearest_distance": nearest_real,
+            "farthest_distance": farthest_real,
+            "depth_mean": mean_real,
+            "calibrated": calibrated,
         }
     except Exception as e:
         logger.error(f"Depth heatmap error: {e}")
@@ -938,37 +970,37 @@ async def calibrate_depth_region(data: DepthCalibrationRegion):
     """通过框选区域进行深度校准"""
     if state.depth_estimator is None:
         return {"status": "error", "message": "Depth estimator not initialized"}
-    
+
     if not state.camera or not state.camera.is_opened():
         return {"status": "error", "message": "Camera not opened"}
-    
+
     try:
         # 读取当前帧
         ret, frame = state.camera.read()
         if not ret or frame is None:
             return {"status": "error", "message": "Failed to read frame"}
-        
-        # 估计深度
-        depth_map = state.depth_estimator.estimate(frame)
+
+        # 估计原始深度（不归一化，用于校准）
+        depth_map = state.depth_estimator.estimate(frame, normalize=False)
         if depth_map is None:
             return {"status": "error", "message": "Depth estimation failed"}
-        
+
         # 获取框选区域的平均深度
         h, w = depth_map.shape
         x1 = max(0, min(data.x, w - 1))
         y1 = max(0, min(data.y, h - 1))
         x2 = max(0, min(data.x + data.width, w))
         y2 = max(0, min(data.y + data.height, h))
-        
+
         if x2 <= x1 or y2 <= y1:
             return {"status": "error", "message": "Invalid region"}
-        
+
         region = depth_map[y1:y2, x1:x2]
         avg_depth = float(np.mean(region))
-        
+
         # 添加校准点
         result = state.depth_estimator.add_calibration_point(avg_depth, data.real_distance)
-        
+
         return {
             "status": "success",
             "region_avg_depth": avg_depth,
