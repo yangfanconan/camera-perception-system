@@ -383,8 +383,21 @@ class DepthEstimator:
             self.scale_factor = 1.0
             self.offset = 0.0
         
+        # 记录校准点的范围（用于内插）
+        self.calibration_min = float(np.min(relative))
+        self.calibration_max = float(np.max(relative))
+        
+        # 计算对应的真实距离范围
+        if self.scale_factor >= 0:
+            self.real_min = self.calibration_min * self.scale_factor + self.offset
+            self.real_max = self.calibration_max * self.scale_factor + self.offset
+        else:
+            self.real_max = self.calibration_min * self.scale_factor + self.offset
+            self.real_min = self.calibration_max * self.scale_factor + self.offset
+
         self.calibrated = True
         logger.info(f"Depth calibration computed: scale={self.scale_factor:.4f}, offset={self.offset:.4f}")
+        logger.info(f"Calibration range: raw=[{self.calibration_min:.2f}, {self.calibration_max:.2f}], real=[{self.real_min:.2f}, {self.real_max:.2f}]m")
 
     def apply_calibration(self, depth_map: np.ndarray) -> np.ndarray:
         """
@@ -407,6 +420,10 @@ class DepthEstimator:
         self.calibration_points = []
         self.scale_factor = 1.0
         self.offset = 0.0
+        self.calibration_min = 0.0
+        self.calibration_max = 0.0
+        self.real_min = 0.0
+        self.real_max = 0.0
         logger.info("Depth calibration cleared")
 
     def get_calibration_info(self) -> Dict[str, Any]:

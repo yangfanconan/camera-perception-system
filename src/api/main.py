@@ -928,27 +928,40 @@ async def get_depth_heatmap():
         logger.info(f"Calibration: scale={state.depth_estimator.scale_factor:.4f}, offset={state.depth_estimator.offset:.4f}")
         
         if state.depth_estimator.calibrated and depth_raw is not None:
-            # 应用校准：real = scale * relative + offset
-            nearest_real = raw_min * state.depth_estimator.scale_factor + state.depth_estimator.offset
-            farthest_real = raw_max * state.depth_estimator.scale_factor + state.depth_estimator.offset
-            mean_real = raw_mean * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            # 使用内插：将原始深度值限制在校准范围内
+            cal_min = state.depth_estimator.calibration_min
+            cal_max = state.depth_estimator.calibration_max
             
+            # 限制到校准范围（避免外推产生不合理的结果）
+            raw_min_clamped = max(cal_min, min(cal_max, raw_min))
+            raw_max_clamped = max(cal_min, min(cal_max, raw_max))
+            raw_mean_clamped = max(cal_min, min(cal_max, raw_mean))
+            
+            # 应用校准：real = scale * relative + offset
+            nearest_real = raw_min_clamped * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            farthest_real = raw_max_clamped * state.depth_estimator.scale_factor + state.depth_estimator.offset
+            mean_real = raw_mean_clamped * state.depth_estimator.scale_factor + state.depth_estimator.offset
+
             # 确保 nearest < farthest（近的距离小，远的距离大）
             if nearest_real > farthest_real:
                 nearest_real, farthest_real = farthest_real, nearest_real
-            
-            # 限制最小距离为 0（不能为负数）
-            nearest_real = max(0, nearest_real)
-            farthest_real = max(nearest_real, farthest_real)
-            mean_real = max(0, mean_real)
-            
+
             calibrated = True
+            
+            # 返回校准范围信息
+            calibration_range = {
+                "raw_min": cal_min,
+                "raw_max": cal_max,
+                "real_min": state.depth_estimator.real_min,
+                "real_max": state.depth_estimator.real_max
+            }
         else:
             # 未标定时，不显示假距离
             nearest_real = None
             farthest_real = None
             mean_real = None
             calibrated = False
+            calibration_range = None
 
         return {
             "status": "success",
@@ -961,6 +974,7 @@ async def get_depth_heatmap():
             "depth_shape": depth_shape,
             "scale_factor": state.depth_estimator.scale_factor if state.depth_estimator.calibrated else 1.0,
             "offset": state.depth_estimator.offset if state.depth_estimator.calibrated else 0.0,
+            "calibration_range": calibration_range,
         }
     except Exception as e:
         logger.error(f"Depth heatmap error: {e}")

@@ -1033,6 +1033,10 @@ const tooltipStyle = ref({})
 const heatmapImage = ref(null)
 
 // 鼠标悬停显示深度
+// 校准范围
+const calibrationRange = ref(null)
+
+// 鼠标悬停显示深度
 const onHeatmapMouseMove = (e) => {
   if (!depthDataArray.value || !depthShape.value || !heatmapImage.value) return
   
@@ -1048,12 +1052,13 @@ const onHeatmapMouseMove = (e) => {
   // 边界检查
   if (smallX >= 0 && smallX < depthShape.value.width && smallY >= 0 && smallY < depthShape.value.height) {
     const idx = smallY * depthShape.value.width + smallX
-    const rawDepth = depthDataArray.value[idx]
+    let rawDepth = depthDataArray.value[idx]
     
     // 应用校准
-    if (depthInfo.calibrated) {
+    if (depthInfo.calibrated && calibrationRange.value) {
+      // 限制到校准范围（内插）
+      rawDepth = Math.max(calibrationRange.value.raw_min, Math.min(calibrationRange.value.raw_max, rawDepth))
       let realDepth = rawDepth * depthScaleFactor.value + depthOffset.value
-      realDepth = Math.max(0, realDepth)
       heatmapCursorDepth.value = realDepth
     } else {
       heatmapCursorDepth.value = rawDepth
@@ -1417,6 +1422,7 @@ const fetchDepthHeatmap = async () => {
         depthShape.value = response.data.depth_shape
         depthScaleFactor.value = response.data.scale_factor || 1.0
         depthOffset.value = response.data.offset || 0.0
+        calibrationRange.value = response.data.calibration_range || null
         
         // 解码 base64 为 float32 数组
         const binaryString = atob(response.data.depth_data)
