@@ -121,7 +121,12 @@
           
           <!-- 深度热力图显示 -->
           <div v-if="showDepthHeatmap && depthHeatmap" class="heatmap-container">
-            <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" />
+            <div class="heatmap-wrapper" @mousemove="onHeatmapMouseMove" @mouseleave="heatmapCursorDepth = null">
+              <img :src="'data:image/jpeg;base64,' + depthHeatmap" alt="Depth Heatmap" class="heatmap-image" ref="heatmapImage" />
+              <div v-if="heatmapCursorDepth !== null" class="heatmap-tooltip" :style="tooltipStyle">
+                {{ heatmapCursorDepth.toFixed(2) }} m
+              </div>
+            </div>
             <div class="heatmap-legend">
               <span class="legend-item"><span class="legend-color near"></span> 近（红）</span>
               <span class="legend-item"><span class="legend-color mid"></span> 中</span>
@@ -1018,6 +1023,50 @@ const depthInfo = reactive({
 })
 let heatmapInterval = null
 
+// 深度数据（用于鼠标悬停显示）
+const depthDataArray = ref(null)
+const depthShape = ref(null)
+const depthScaleFactor = ref(1.0)
+const depthOffset = ref(0.0)
+const heatmapCursorDepth = ref(null)
+const tooltipStyle = ref({})
+const heatmapImage = ref(null)
+
+// 鼠标悬停显示深度
+const onHeatmapMouseMove = (e) => {
+  if (!depthDataArray.value || !depthShape.value || !heatmapImage.value) return
+  
+  const rect = heatmapImage.value.getBoundingClientRect()
+  const x = e.clientX - rect.left
+  const y = e.clientY - rect.top
+  
+  // 计算在降采样图像中的位置
+  const scale = depthShape.value.scale
+  const smallX = Math.floor(x / scale / (rect.width / (depthShape.value.width * scale)) * depthShape.value.width)
+  const smallY = Math.floor(y / scale / (rect.height / (depthShape.value.height * scale)) * depthShape.value.height)
+  
+  // 边界检查
+  if (smallX >= 0 && smallX < depthShape.value.width && smallY >= 0 && smallY < depthShape.value.height) {
+    const idx = smallY * depthShape.value.width + smallX
+    const rawDepth = depthDataArray.value[idx]
+    
+    // 应用校准
+    if (depthInfo.calibrated) {
+      let realDepth = rawDepth * depthScaleFactor.value + depthOffset.value
+      realDepth = Math.max(0, realDepth)
+      heatmapCursorDepth.value = realDepth
+    } else {
+      heatmapCursorDepth.value = rawDepth
+    }
+    
+    // 更新tooltip位置
+    tooltipStyle.value = {
+      left: (x + 15) + 'px',
+      top: (y - 10) + 'px'
+    }
+  }
+}
+
 // 深度标定
 const depthCalibration = reactive({
   calibrated: false,
@@ -1362,6 +1411,21 @@ const fetchDepthHeatmap = async () => {
       depthInfo.mean = response.data.depth_mean
       depthInfo.calibrated = response.data.calibrated
       depthInfo.relativeMean = response.data.relative_depth?.mean || 0
+      
+      // 解析深度数据
+      if (response.data.depth_data && response.data.depth_shape) {
+        depthShape.value = response.data.depth_shape
+        depthScaleFactor.value = response.data.scale_factor || 1.0
+        depthOffset.value = response.data.offset || 0.0
+        
+        // 解码 base64 为 float32 数组
+        const binaryString = atob(response.data.depth_data)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i)
+        }
+        depthDataArray.value = new Float32Array(bytes.buffer)
+      }
     }
   } catch (error) {
     console.error('获取深度热力图失败:', error)
@@ -2622,10 +2686,29 @@ onUnmounted(() => {
   border: 1px solid #333355;
 }
 
+.heatmap-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
 .heatmap-image {
   width: 100%;
   max-width: 640px;
   border-radius: 4px;
+}
+
+.heatmap-tooltip {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.85);
+  color: #00ff88;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  pointer-events: none;
+  z-index: 100;
+  white-space: nowrap;
+  border: 1px solid #00ff88;
 }
 
 .heatmap-info {

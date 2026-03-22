@@ -908,6 +908,20 @@ async def get_depth_heatmap():
         # 编码为 base64
         _, buffer = cv2.imencode('.jpg', heatmap, [cv2.IMWRITE_JPEG_QUALITY, 80])
         heatmap_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        # 降采样深度数据用于前端鼠标悬停显示（1/8 分辨率）
+        if depth_raw is not None:
+            h, w = depth_raw.shape
+            scale = 8
+            small_h, small_w = h // scale, w // scale
+            depth_small = cv2.resize(depth_raw, (small_w, small_h), interpolation=cv2.INTER_AREA)
+            # 编码为 base64（float32 -> bytes）
+            depth_bytes = depth_small.astype(np.float32).tobytes()
+            depth_data_base64 = base64.b64encode(depth_bytes).decode('utf-8')
+            depth_shape = {"width": small_w, "height": small_h, "scale": scale}
+        else:
+            depth_data_base64 = None
+            depth_shape = None
 
         # 计算真实距离（使用原始深度值）
         logger.info(f"Raw depth range: min={raw_min:.2f}, max={raw_max:.2f}, mean={raw_mean:.2f}")
@@ -943,6 +957,10 @@ async def get_depth_heatmap():
             "farthest_distance": farthest_real,
             "depth_mean": mean_real,
             "calibrated": calibrated,
+            "depth_data": depth_data_base64,
+            "depth_shape": depth_shape,
+            "scale_factor": state.depth_estimator.scale_factor if state.depth_estimator.calibrated else 1.0,
+            "offset": state.depth_estimator.offset if state.depth_estimator.calibrated else 0.0,
         }
     except Exception as e:
         logger.error(f"Depth heatmap error: {e}")
